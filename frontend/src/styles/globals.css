@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  overflow-x: hidden;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  overflow-y: auto;
+  position: relative;
+}
+
+/* Remove all fixed sizing on parent containers */
+#__next, main {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Remove any bottom margins from last elements */
+.mb-8:last-child, .my-12:last-child, .my-16:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* Fix for bottom whitespace */
+.homepage-container {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Hard fix for footer space */
+main > div:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* ... existing code ... */ 

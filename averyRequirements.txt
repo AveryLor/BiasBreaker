@@ -1,2 +1,5 @@
-Requirements for requirements: 
-
+Requirements: 
+pip install requests beautifulsoup4
+source venv/bin/activate
+pip install supabase
+python /Users/averylor/Desktop/GenesisAI/GenesisAI/webScrapingScript.py

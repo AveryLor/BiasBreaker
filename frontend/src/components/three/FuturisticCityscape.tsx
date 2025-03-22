@@ -23,7 +23,7 @@ interface NewsArticle {
 }
 
 // Building generator with instanced meshes for performance
-function Buildings({ count = 50, newsArticles }: { count: number, newsArticles: NewsArticle[] }) {
+function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: NewsArticle[] }) {
   const { theme } = useTheme();
   const instancedMeshRef = useRef<THREE.InstancedMesh>(null);
   const { viewport } = useThree();
@@ -76,11 +76,29 @@ function Buildings({ count = 50, newsArticles }: { count: number, newsArticles: 
     new THREE.Color('#01FEFE'), // Light blue
   ];
   
+  // Define interface for building data
+  interface BuildingData {
+    position: [number, number, number];
+    scale: [number, number, number];
+    rotation: [number, number, number];
+    color: THREE.Color;
+    emissive: boolean;
+    emissiveColor: THREE.Color;
+    emissiveIntensity: number;
+    buildingType: number;
+    hasBillboard: boolean;
+    billboardArticle: NewsArticle | null;
+    billboardHeight: number;
+    billboardRotation: number;
+    hasNeonOutline: boolean;
+    neonColor: THREE.Color;
+  }
+  
   // Building properties
   const buildingData = useMemo(() => {
-    const data = [];
+    const data: BuildingData[] = [];
     const gridSize = Math.ceil(Math.sqrt(count));
-    const spacing = 4;
+    const spacing = 5;
     const citySize = gridSize * spacing;
     
     // Generate various building types and positions in a grid pattern
@@ -111,8 +129,8 @@ function Buildings({ count = 50, newsArticles }: { count: number, newsArticles: 
       const emissiveColor = neonColors[Math.floor(Math.random() * neonColors.length)];
       const emissiveIntensity = 0.4 + Math.random() * 0.6; // Brighter
       
-      // Should this building have a billboard?
-      const hasBillboard = Math.random() > 0.2; // Increased probability for billboards (was 0.4)
+      // Should this building have a billboard? Only about 1/3 of buildings get billboards
+      const hasBillboard = Math.random() > 0.25; // Increased probability (was 0.65)
       
       // Assign a specific news outlet to this billboard
       let billboardOutlet = null;
@@ -157,18 +175,80 @@ function Buildings({ count = 50, newsArticles }: { count: number, newsArticles: 
         billboardRotation: Math.random() * Math.PI * 2,
         hasNeonOutline: Math.random() > 0.3, // Some buildings get neon outlines
         neonColor: neonColors[Math.floor(Math.random() * neonColors.length)],
-        // Add a second billboard for tall buildings
-        hasSecondBillboard: hasBillboard && height > 10 && Math.random() > 0.5,
-        secondBillboardArticle: hasBillboard && height > 10 && Math.random() > 0.5 ? {
-          id: i + count,
-          title: fallbackTitles[Math.floor(Math.random() * fallbackTitles.length)],
-          source: newsOutlets[Math.floor(Math.random() * newsOutlets.length)],
-          category: fallbackCategories[Math.floor(Math.random() * fallbackCategories.length)]
-        } : null,
+        // Remove secondary billboard properties
       });
     }
+    
+    // Additional pass to check and eliminate billboard overlaps
+    // Sort buildings by height to prioritize taller buildings for billboards
+    data.sort((a, b) => (b.scale[1] as number) - (a.scale[1] as number));
+    
+    // Keep track of billboard bounding volumes for collision detection
+    const billboardVolumes: {
+      position: [number, number, number], 
+      width: number, 
+      depth: number
+    }[] = [];
+    
+    // Verify and remove billboards that would overlap
+    data.forEach((building) => {
+      if (building.hasBillboard) {
+        const buildingX = building.position[0] as number;
+        const buildingZ = building.position[2] as number;
+        const buildingHeight = building.billboardHeight as number;
+        
+        // Default billboard dimensions
+        const billboardWidth = 5.0; // Increased width for better overlap detection
+        const billboardDepth = 1.0; // Increased depth for better overlap detection
+        
+        // Check if this billboard would overlap with any other building
+        const wouldOverlap = data.some(otherBuilding => {
+          // Skip self-comparison
+          if (otherBuilding === building) return false;
+          
+          const otherX = otherBuilding.position[0] as number;
+          const otherZ = otherBuilding.position[2] as number;
+          const otherHeight = otherBuilding.scale[1] as number;
+          const otherWidth = otherBuilding.scale[0] as number;
+          const otherDepth = otherBuilding.scale[2] as number;
+          
+          // Calculate horizontal distance between buildings
+          const distanceX = Math.abs(buildingX - otherX);
+          const distanceZ = Math.abs(buildingZ - otherZ);
+          
+          // Check if billboard would intersect with other building
+          // A billboard positioned on top of building would be at buildingHeight + offset
+          // We need to check if any part of the other building would intersect with this space
+          
+          // First, check horizontal overlap
+          const horizontalOverlap = 
+            distanceX < (billboardWidth / 2 + otherWidth / 2) && 
+            distanceZ < (billboardDepth / 2 + otherDepth / 2);
+          
+          // Then check if the other building is tall enough to cause problems
+          // Only consider buildings that are almost as tall as where we want to place the billboard
+          const otherBuildingTooTall = (otherHeight / 2 + otherBuilding.position[1]) > (buildingHeight - 1);
+          
+          return horizontalOverlap && otherBuildingTooTall;
+        });
+        
+        if (wouldOverlap) {
+          // Remove billboard from this building if it would overlap
+          building.hasBillboard = false;
+          building.billboardArticle = null;
+        } else {
+          // Add this billboard to the volumes list
+          billboardVolumes.push({
+            position: [buildingX, buildingHeight, buildingZ],
+            width: billboardWidth,
+            depth: billboardDepth
+          });
+        }
+      }
+    });
+    
     return data;
-  }, [count, theme, newsArticles, newsOutlets, neonColors]);
+  }, [count, theme, newsArticles, newsOutlets, neonColors, fallbackTitles, fallbackCategories]);
   
   // Update the instanced meshes
   useEffect(() => {
@@ -246,36 +326,23 @@ function Buildings({ count = 50, newsArticles }: { count: number, newsArticles: 
         />
       ))}
       
-      {/* Add billboards to some buildings */}
+      {/* Add billboards to buildings with overlap prevention */}
       {buildingData.filter(b => b.hasBillboard && b.billboardArticle).map((building, i) => {
-        // Calculate a position on the building rather than just at the top
-        // Some billboards on top, some on sides of buildings
-        const isSideBillboard = Math.random() > 0.5;
-        const position: [number, number, number] = isSideBillboard
-          ? [
-              // Position on the side of building with slight offset
-              building.position[0] as number + ((building.scale[0] as number) * 0.5 + 0.2) * (Math.random() > 0.5 ? 1 : -1),
-              (building.billboardHeight as number) * Math.random() * 0.7, // At random height on the building
-              building.position[2] as number + ((building.scale[2] as number) * 0.5 + 0.2) * (Math.random() > 0.5 ? 1 : -1)
-            ]
-          : [
-              // Position on top of building
-              building.position[0] as number,
-              (building.billboardHeight as number) + Math.random() * 0.5, // Slightly varied height
-              building.position[2] as number
-            ];
+        // Position well above the building top
+        const position: [number, number, number] = [
+          building.position[0] as number,
+          (building.billboardHeight as number) + 1.5, // Increased height to place billboard well above building
+          building.position[2] as number
+        ];
             
-        // Calculate rotation - either facing outward from building or random for top billboards
-        const rotation: [number, number, number] = isSideBillboard
-          ? [
-              0,
-              Math.atan2(
-                position[0] - (building.position[0] as number),
-                position[2] - (building.position[2] as number)
-              ),
-              0
-            ]
-          : [0, building.billboardRotation as number, 0];
+        // Calculate rotation to always face the camera
+        const baseRotation = Math.atan2(
+          position[0], 
+          position[2]
+        );
+        
+        // Use a more predictable rotation that ensures visibility
+        const rotation: [number, number, number] = [0, baseRotation, 0];
             
         return (
           <NewsBillboard 
@@ -283,37 +350,8 @@ function Buildings({ count = 50, newsArticles }: { count: number, newsArticles: 
             position={position}
             rotation={rotation}
             article={building.billboardArticle as NewsArticle}
-            scale={1.5 + Math.random()}
-          />
-        );
-      })}
-
-      {/* Add second billboards to taller buildings */}
-      {buildingData.filter(b => b.hasSecondBillboard && b.secondBillboardArticle).map((building, i) => {
-        // Position on the opposite side from the main billboard
-        const position: [number, number, number] = [
-          building.position[0] as number + ((building.scale[0] as number) * 0.5 + 0.2) * (Math.random() > 0.5 ? 1 : -1),
-          (building.billboardHeight as number) * 0.3, // Lower on the building
-          building.position[2] as number + ((building.scale[2] as number) * 0.5 + 0.2) * (Math.random() > 0.5 ? 1 : -1)
-        ];
-            
-        // Facing outward from building
-        const rotation: [number, number, number] = [
-          0,
-          Math.atan2(
-            position[0] - (building.position[0] as number),
-            position[2] - (building.position[2] as number)
-          ),
-          0
-        ];
-            
-        return (
-          <NewsBillboard 
-            key={`second-billboard-${i}`}
-            position={position}
-            rotation={rotation}
-            article={building.secondBillboardArticle as NewsArticle}
-            scale={1.3 + Math.random() * 0.3}
+            scale={1.5 + Math.random() * 0.2}
+            buildingId={i}
           />
         );
       })}
@@ -330,9 +368,9 @@ function NeonOutline({ position, rotation, scale, color }: {
 }) {
   const lineRef = useRef<THREE.LineSegments>(null);
   
-  // Pulse effect
+  // Pulse effect - less frequent updates
   useFrame(({ clock }) => {
-    if (lineRef.current) {
+    if (lineRef.current && Math.floor(clock.getElapsedTime() * 5) % 3 === 0) {
       const material = lineRef.current.material as THREE.LineBasicMaterial;
       const pulse = Math.sin(clock.getElapsedTime() * 2) * 0.3 + 0.7;
       material.color.setRGB(
@@ -343,6 +381,7 @@ function NeonOutline({ position, rotation, scale, color }: {
     }
   });
   
+  // Simplified geometry (fewer edges)
   return (
     <lineSegments
       ref={lineRef}
@@ -350,18 +389,19 @@ function NeonOutline({ position, rotation, scale, color }: {
       rotation={rotation}
       scale={[scale[0] * 1.02, scale[1] * 1.02, scale[2] * 1.02]}
     >
-      <edgesGeometry args={[new THREE.BoxGeometry(1, 1, 1)]} />
+      <edgesGeometry args={[new THREE.BoxGeometry(1, 1, 1, 1, 1, 1)]} />
       <lineBasicMaterial color={color} linewidth={2} />
     </lineSegments>
   );
 }
 
-// Animated news billboard with glitch effects
-function NewsBillboard({ position, rotation, article, scale = 1 }: { 
+// Animated news billboard
+function NewsBillboard({ position, rotation, article, scale = 1, buildingId }: { 
   position: [number, number, number],
   rotation: [number, number, number],
   article: NewsArticle | null,
-  scale?: number
+  scale?: number,
+  buildingId: number
 }) {
   const { theme } = useTheme();
   const groupRef = useRef<THREE.Group>(null);
@@ -380,24 +420,24 @@ function NewsBillboard({ position, rotation, article, scale = 1 }: {
   // Create an animated headline
   const [visibleChars, setVisibleChars] = useState(0);
   
-  // Random glitch effect
+  // Less frequent glitch effects
   useEffect(() => {
     const glitchInterval = setInterval(() => {
-      // Randomly trigger glitch effect
-      if (Math.random() > 0.7) {
+      // Reduce probability of glitch effect
+      if (Math.random() > 0.85) {
         setGlitching(true);
-        setTimeout(() => setGlitching(false), 300 + Math.random() * 200);
+        setTimeout(() => setGlitching(false), 200 + Math.random() * 100);
       }
-    }, 3000 + Math.random() * 5000);
+    }, 6000 + Math.random() * 6000); // Less frequent glitch
     
     return () => clearInterval(glitchInterval);
   }, []);
   
-  // Create display texture
+  // Create display texture - lower resolution and simpler patterns
   const texture = useMemo(() => {
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 256;
+    canvas.width = 256; // Reduced from 512
+    canvas.height = 128; // Reduced from 256
     const ctx = canvas.getContext('2d');
     
     if (!ctx) return new THREE.CanvasTexture(canvas);
@@ -411,8 +451,8 @@ function NewsBillboard({ position, rotation, article, scale = 1 }: {
     ctx.strokeStyle = glitching ? '#FF00FF' : '#00FFFF';
     ctx.lineWidth = 1;
     
-    // Grid pattern
-    const gridSpacing = 20;
+    // Simplified grid pattern - fewer lines
+    const gridSpacing = 32; // Increased from 20
     for (let x = 0; x <= canvas.width; x += gridSpacing) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -598,7 +638,7 @@ function NewsBillboard({ position, rotation, article, scale = 1 }: {
     return new THREE.CanvasTexture(canvas);
   }, [safeArticle, theme, visibleChars, glitching]);
   
-  // Typing animation effect
+  // Typing animation - slower to reduce updates
   useEffect(() => {
     const typingTimer = setInterval(() => {
       setVisibleChars(prev => {
@@ -606,25 +646,25 @@ function NewsBillboard({ position, rotation, article, scale = 1 }: {
           // Completely displayed, pause for a bit then reset
           setTimeout(() => {
             setVisibleChars(0);
-          }, 3000);
+          }, 5000); // Longer pause
           return prev;
         }
         return prev + 1;
       });
-    }, 80); // Faster typing for more dynamic feel
+    }, 100); // Slower typing (was 80)
     
     return () => clearInterval(typingTimer);
   }, [safeArticle.title]);
   
-  // Pulsating and hover effects
+  // Pulsating and hover effects - less frequent updates
   useFrame(({ clock }) => {
-    if (groupRef.current) {
+    if (groupRef.current && Math.floor(clock.getElapsedTime() * 10) % 2 === 0) {
       const t = clock.getElapsedTime();
       
       // Apply subtle floating motion
       groupRef.current.position.y = position[1] + Math.sin(t * 0.5) * 0.1;
       
-      // Apply glitch effect
+      // Apply glitch effect only when glitching
       if (glitching) {
         groupRef.current.position.x = position[0] + (Math.random() - 0.5) * 0.1;
         groupRef.current.position.z = position[2] + (Math.random() - 0.5) * 0.1;
@@ -633,11 +673,11 @@ function NewsBillboard({ position, rotation, article, scale = 1 }: {
         groupRef.current.position.z = position[2];
       }
       
-      // Grow slightly when hovered
+      // Grow slightly when hovered - simpler lerp
       if (hovered) {
-        groupRef.current.scale.lerp(new THREE.Vector3(scale * 1.1, scale * 1.1, scale * 1.1), 0.1);
+        groupRef.current.scale.set(scale * 1.1, scale * 1.1, scale * 1.1);
       } else {
-        groupRef.current.scale.lerp(new THREE.Vector3(scale, scale, scale), 0.1);
+        groupRef.current.scale.set(scale, scale, scale);
       }
     }
   });
@@ -657,22 +697,16 @@ function NewsBillboard({ position, rotation, article, scale = 1 }: {
       onPointerOver={() => setHovered(true)}
       onPointerOut={() => setHovered(false)}
     >
-      {/* Billboard backing with slight depth */}
-      <mesh position={[0, 0, -0.05]}>
-        <boxGeometry args={[3, 1.5, 0.1]} />
-        <meshStandardMaterial color="#000000" metalness={0.8} roughness={0.2} />
-      </mesh>
-      
       {/* Main billboard display */}
       <mesh>
         <planeGeometry args={[3, 1.5]} />
-        <meshBasicMaterial map={texture} transparent side={THREE.DoubleSide} />
+        <meshBasicMaterial map={texture} transparent side={THREE.FrontSide} /> {/* Only render front side */}
       </mesh>
       
-      {/* Add a thin neon frame */}
+      {/* Simplified neon frame */}
       <lineSegments>
-        <edgesGeometry args={[new THREE.PlaneGeometry(3.1, 1.6)]} />
-        <lineBasicMaterial color={glitching ? new THREE.Color('#FF00FF') : new THREE.Color('#00FFFF')} linewidth={3} />
+        <edgesGeometry args={[new THREE.PlaneGeometry(3.1, 1.6, 1, 1)]} /> {/* Reduced segments */}
+        <lineBasicMaterial color={glitching ? new THREE.Color('#FF00FF') : new THREE.Color('#00FFFF')} />
       </lineSegments>
     </group>
   );
@@ -760,9 +794,9 @@ function RoadNetwork() {
   );
 }
 
-// Ambient particles for atmosphere
+// Ambient particles for atmosphere - even more optimized
 function ParticleField() {
-  const count = 300;
+  const count = 80; // Reduced from 150
   const particleRef = useRef<THREE.Points>(null);
   
   // Generate random particle positions
@@ -777,16 +811,16 @@ function ParticleField() {
     return positions;
   }, []);
   
-  // Animate particles
+  // Animate particles - batch updates for better performance
   useFrame(({ clock }) => {
-    if (particleRef.current) {
+    if (particleRef.current && Math.floor(clock.getElapsedTime() * 5) % 3 === 0) { // Even less frequent updates
       particleRef.current.rotation.y = clock.getElapsedTime() * 0.01;
       
-      // Make particles gently float up
+      // Make particles gently float up - update all at once
       const positions = particleRef.current.geometry.attributes.position.array as Float32Array;
       for (let i = 0; i < count; i++) {
         const i3 = i * 3;
-        positions[i3 + 1] += 0.01 + Math.random() * 0.01;
+        positions[i3 + 1] += 0.05; // Fixed increment, no random for better performance
         
         if (positions[i3 + 1] > 40) {
           positions[i3 + 1] = 0;
@@ -808,19 +842,19 @@ function ParticleField() {
         />
       </bufferGeometry>
       <pointsMaterial
-        size={0.2}
+        size={0.4} // Larger to compensate for fewer particles
         color="#00FFFF"
         transparent
-        opacity={0.4}
+        opacity={0.3}
         sizeAttenuation
       />
     </points>
   );
 }
 
-// Digital rain effect (falling code/data)
+// Digital rain effect - further reduced
 function DigitalRain() {
-  const count = 150;
+  const count = 40; // Reduced from 75
   const linesRef = useRef<THREE.Group>(null);
   
   // Generate random digital rain positions
@@ -831,15 +865,15 @@ function DigitalRain() {
         20 + Math.random() * 20,
         (Math.random() - 0.5) * 100
       ] as [number, number, number],
-      length: 1 + Math.random() * 5,
-      speed: 0.05 + Math.random() * 0.2,
-      color: Math.random() > 0.5 ? '#00FFFF' : '#FF00FF'
+      length: 1 + Math.random() * 3, // Shorter lines
+      speed: 0.1 + Math.random() * 0.1, // More consistent speed
+      color: '#00FFFF' // Single color for better batching
     }))
   , []);
   
-  // Animate digital rain
+  // Animate digital rain - batch updates
   useFrame(() => {
-    if (linesRef.current) {
+    if (linesRef.current && linesRef.current.children.length > 0) {
       linesRef.current.children.forEach((line, i) => {
         // Move line down
         line.position.y -= rainLines[i].speed;
@@ -861,7 +895,7 @@ function DigitalRain() {
       {rainLines.map((line, i) => (
         <mesh key={i} position={line.startPosition}>
           <boxGeometry args={[0.05, line.length, 0.05]} />
-          <meshBasicMaterial color={line.color} transparent opacity={0.7} />
+          <meshBasicMaterial color={line.color} transparent opacity={0.5} />
         </mesh>
       ))}
     </group>
@@ -897,9 +931,9 @@ function LightningEffect() {
   );
 }
 
-// Flying drones
+// Flying vehicles (reduced count)
 function FlyingVehicles() {
-  const count = 10;
+  const count = 5; // Reduced from 10
   const vehiclesRef = useRef<THREE.Group[]>([]);
   
   // Vehicle paths
@@ -994,35 +1028,51 @@ function CyberpunkGround() {
   );
 }
 
-// Main component
+// Camera control updater for smooth auto-rotation
+function CameraControlUpdater() {
+  const { controls } = useThree();
+  
+  useFrame(() => {
+    if (controls && 'update' in controls) {
+      (controls as any).update();
+    }
+  });
+  
+  return null;
+}
+
+// Main component - optimized scene setup
 export default function FuturisticCityscape({ newsArticles }: { newsArticles: NewsArticle[] }) {
   const { theme } = useTheme();
+  const [highPerformanceDevice, setHighPerformanceDevice] = useState(false);
   
-  // Post-processing effects
+  // Check device capability once on client-side
+  useEffect(() => {
+    // Simple heuristic to detect high-performance devices
+    const isHighEnd = 
+      // Check for desktop device (likely more powerful)
+      typeof navigator !== 'undefined' && 
+      !navigator.userAgent.match(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i) && 
+      // Check for modern API support
+      typeof window.requestAnimationFrame === 'function' &&
+      // Check screen resolution (higher res likely means better hardware)
+      window.screen.width >= 1440;
+    
+    setHighPerformanceDevice(isHighEnd);
+  }, []);
+  
+  // Simplified post-processing (minimal)
   const postProcessingEffects = () => {
     if (typeof window === 'undefined') return null;
     
-    // Dynamically import the needed components to avoid SSR issues
-    const { EffectComposer, Bloom, ChromaticAberration, Noise, Vignette } = require('@react-three/postprocessing');
-    const { BlendFunction } = require('postprocessing');
+    const { EffectComposer, Bloom } = require('@react-three/postprocessing');
     
     return (
-      <EffectComposer>
+      <EffectComposer multisampling={0} frameBufferType={undefined}> 
         <Bloom
-          luminanceThreshold={0.2}
-          luminanceSmoothing={0.9}
-          intensity={1.5}
-        />
-        <ChromaticAberration
-          offset={[0.002, 0.002]}
-        />
-        <Noise
-          opacity={0.05}
-          blendFunction={BlendFunction.OVERLAY}
-        />
-        <Vignette
-          darkness={0.5}
-          offset={0.5}
+          luminanceThreshold={0.4} // Higher threshold = even less bloom
+          luminanceSmoothing={0.7}
+          intensity={1.0} // Reduced intensity
         />
       </EffectComposer>
     );
@@ -1031,48 +1081,62 @@ export default function FuturisticCityscape({ newsArticles }: { newsArticles: Ne
   return (
     <div className="w-full h-[500px] relative">
       <Canvas
-        shadows
+        shadows={false} // Disable shadows completely for performance
+        dpr={[1, 1.5]} // Limit resolution scaling
         camera={{ position: [0, 15, 40], fov: 60 }}
+        gl={{ 
+          antialias: false, // Disable antialias for performance
+          powerPreference: 'high-performance' 
+        }}
       >
+        {/* Camera control updater for auto-rotation */}
+        <CameraControlUpdater />
+        
         {/* Background color */}
         <color attach="background" args={['#050518']} />
         
-        {/* Atmospheric fog */}
-        <fog attach="fog" args={['#090420', 10, 60]} />
+        {/* Atmospheric fog - simplified */}
+        <fog attach="fog" args={['#090420', 20, 70]} />
         
-        {/* Orbital camera controls */}
+        {/* Orbital camera controls - limited */}
         <OrbitControls
           enableZoom={true}
           enablePan={false}
+          enableDamping={true} // Re-enable damping for smooth auto-rotation
+          dampingFactor={0.05}
           maxPolarAngle={Math.PI / 2 - 0.1}
-          minDistance={10}
-          maxDistance={60}
+          minDistance={30} // Increased from 15 to restrict zoom-in
+          maxDistance={35} // Reduced from 50 to restrict zoom-out
+          autoRotate={true} // Enable auto-rotation
+          autoRotateSpeed={2} // Slow rotation speed
+          rotateSpeed={0.7} // Adjust manual rotation speed
         />
         
-        {/* Main lighting */}
-        <ambientLight intensity={0.1} color="#2a265f" />
+        {/* Main lighting - simplified */}
+        <ambientLight intensity={0.15} />
         
-        {/* Slightly blue-tinted directional light */}
+        {/* Single directional light */}
         <directionalLight
           position={[10, 20, 10]}
-          intensity={0.2}
-          color="#b8c9ff"
-          castShadow
-          shadow-mapSize-width={2048}
-          shadow-mapSize-height={2048}
+          intensity={0.3}
+          castShadow={false}
         />
         
-        {/* Atmospheric effects */}
-        <ParticleField />
-        <DigitalRain />
-        <LightningEffect />
-        
-        {/* City elements */}
+        {/* City elements - core functionality only */}
         <CyberpunkGround />
-        <Buildings count={80} newsArticles={newsArticles} />
-        <FlyingVehicles />
+        <Buildings count={40} newsArticles={newsArticles} />
+        <ParticleField />
         
-        {/* Post-processing effects - conditionally rendered to avoid SSR issues */}
+        {/* Conditionally render these effects based on detected device capability */}
+        {highPerformanceDevice && (
+          <>
+            <DigitalRain />
+            <FlyingVehicles />
+            <LightningEffect />
+          </>
+        )}
+        
+        {/* Post-processing effects - minimal */}
         {postProcessingEffects()}
       </Canvas>
     </div>

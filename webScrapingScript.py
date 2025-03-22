@@ -58,7 +58,7 @@ news_sources = {
    'Riot Times': 'https://riotimesonline.com/',
    'BA Times': 'https://www.batimes.com.ar/',
    'Santiago Times': 'https://santiagotimes.cl/',
-   'Xinhua News': 'https://english.news.cn/',
+   'Xinhua News': 'https://english.news.cn/list/latestnews.htm',
    'Arab News': 'https://www.arabnews.com/',
    'Hurriyet Daily News': 'https://www.hurriyetdailynews.com/',
    'Tehran Times': 'https://www.tehrantimes.com/',
@@ -93,8 +93,8 @@ print(f"Processing {len(news_sources)} news sources\n")
 
 
 # Function to determine if URL is likely an article
+
 def is_likely_article(url, base_domain):
-    # Skip common non-article sections
     non_article_patterns = [
         '/television', '/listen', '/radio', '/music', '/sports',
         '/about', '/contact', '/help', '/faq', '/advertise', '/subscribe',
@@ -104,49 +104,58 @@ def is_likely_article(url, base_domain):
         '/shows', '/schedule', '/listings', '/program'
     ]
     
-    # Non-article file extensions
     non_article_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.pdf', '.mp3', '.mp4', '.avi']
-    
-    # Skip URLs that contain these common non-article patterns
+
+    # Debugging: Print the URL
+    print(f"Checking URL: {url}")
+
+    # Reject common non-article patterns
     for pattern in non_article_patterns:
         if pattern in url.lower():
+            print(f"Rejected due to non-article pattern: {pattern}")
             return False
     
-    # Skip URLs with non-article file extensions
+    # Reject file extensions that aren't articles
     if any(url.lower().endswith(ext) for ext in non_article_extensions):
+        print(f"Rejected due to non-article extension.")
+        return False
+
+    # Reject homepage and major sections
+    path = url.replace('http://', '').replace('https://', '').replace(base_domain, '')
+    if path.count('/') <= 1:
+        print("Rejected because it's too short (homepage or section page).")
         return False
     
-    # Skip homepage and major section pages (usually short URLs)
-    if url.replace('http://', '').replace('https://', '').replace(base_domain, '').count('/') <= 1:
-        return False
-    
-    # URLs with date patterns are likely articles
+    # Allow date-based URLs
     date_patterns = [
         r'/\d{4}/\d{2}/\d{2}/',  # /yyyy/mm/dd/
         r'/\d{4}-\d{2}-\d{2}/',  # /yyyy-mm-dd/
-        r'/news/[a-z\-0-9]+/',   # /news/article-slug/
-        r'/article/'            # /article/
     ]
-    
+
     for pattern in date_patterns:
         if re.search(pattern, url.lower()):
+            print(f"Accepted due to date pattern: {pattern}")
             return True
     
-    # CBC News specific patterns that typically indicate articles
+    # Check for common article indicators
     article_patterns = [
         r'/news/',
         r'/politics/',
         r'/business/',
         r'/health/',
-        r'/technology/'
+        r'/technology/',
+        r'/world/',
+        r'/article/',
     ]
-    
+
     for pattern in article_patterns:
         if re.search(pattern, url.lower()):
+            print(f"Accepted due to article pattern: {pattern}")
             return True
-    
-    return True  # Default to accepting URLs that passed the filters
 
+    # Debugging: Log skipped URLs
+    print(f"URL rejected (no matching patterns found): {url}")
+    return False
 
 # Function to extract article links from a page
 def extract_article_links(soup, base_url):
@@ -189,30 +198,11 @@ def extract_article_links(soup, base_url):
     # Return only unique links that likely point to articles
     return links[:10]  # Return only top 10 links
 
-# Is the article in English
+# Check if the article is in English
 def is_english_article(article_soup): 
     html_tag = article_soup.find('html')
     lang = html_tag.get('lang') if html_tag else None
-    
-    # If lang attribute exists and is explicitly non-English, return False
-    if lang and lang.startswith('en') is False:
-        return False
-        
-    # Additional check: Look for common English words in title or meta description
-    title = article_soup.find('title')
-    title_text = title.get_text() if title else ""
-    
-    meta_desc = article_soup.find('meta', attrs={'name': 'description'})
-    desc_text = meta_desc.get('content', "") if meta_desc else ""
-    
-    combined_text = (title_text + " " + desc_text).lower()
-    english_indicators = ['the', 'and', 'news', 'in', 'on', 'at', 'for', 'with', 'by']
-    
-    # Count how many English indicator words are present
-    english_word_count = sum(1 for word in english_indicators if word in combined_text.split())
-    
-    # If we found at least 2 English indicators, assume it's English
-    return english_word_count >= 2
+    return not lang or lang.startswith('en')
 
 # Function to check if the page has sufficient article content
 def has_article_content(soup):

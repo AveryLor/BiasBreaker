@@ -44,6 +44,16 @@ export default function Header() {
                 Home
               </Link>
               <Link 
+                href="/compare" 
+                className={`px-3 py-2 rounded-md text-sm font-medium ${
+                  pathname === '/compare' 
+                    ? 'bg-gray-100 dark:bg-gray-800 text-blue-600 dark:text-blue-400' 
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+              >
+                Compare
+              </Link>
+              <Link 
                 href="/topics" 
                 className={`px-3 py-2 rounded-md text-sm font-medium ${
                   pathname === '/topics' 
@@ -81,10 +91,6 @@ export default function Header() {
               )}
             </button>
 
-            {/* Sign in button, hidden on mobile */}
-            <button className="ml-4 hidden md:block px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-              Sign In
-            </button>
           </div>
         </div>
       </div>

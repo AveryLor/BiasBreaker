@@ -1,6 +1,7 @@
 import SearchBar from "@/components/SearchBar";
 import InfoBanner from "@/components/InfoBanner";
 import TrendingTopics from "@/components/TrendingTopics";
+import Link from "next/link";
 
 export default function Home() {
   return (
@@ -10,9 +11,12 @@ export default function Home() {
         <h1 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
           News From Every Perspective
         </h1>
-        <p className="text-lg md:text-xl text-gray-600 dark:text-gray-300 max-w-3xl mx-auto">
+        <p className="text-lg md:text-xl text-gray-600 dark:text-gray-300 max-w-3xl mx-auto mb-6">
           Discover balanced, AI-generated news that synthesizes diverse viewpoints, including underrepresented voices.
         </p>
+        <Link href="/compare" className="inline-block px-6 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors">
+          Try Article Comparison
+        </Link>
       </div>
 
       {/* Info Banner */}

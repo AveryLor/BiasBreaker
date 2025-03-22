@@ -1,4 +1,3 @@
-import SearchBar from "@/components/SearchBar";
 import InfoBanner from "@/components/InfoBanner";
 import TrendingTopics from "@/components/TrendingTopics";
 import Link from "next/link";
@@ -21,11 +20,6 @@ export default function Home() {
 
       {/* Info Banner */}
       <InfoBanner />
-
-      {/* Search Section */}
-      <div className="my-8">
-        <SearchBar />
-      </div>
 
       {/* Featured Sections */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 my-12">

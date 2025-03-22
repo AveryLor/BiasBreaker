@@ -36,7 +36,7 @@ export default function TrendingTopics({ topics = [] }: TrendingTopicsProps) {
         {displayTopics.map((topic) => (
           <Link
             key={topic.id}
-            href={`/topics/${topic.id}`}
+            href={`/compare?topic=${encodeURIComponent(topic.title)}`}
             className="group p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:shadow-md transition-shadow bg-white dark:bg-gray-800"
           >
             <div className="flex justify-between items-start">

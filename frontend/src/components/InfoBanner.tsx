@@ -18,7 +18,7 @@ export default function InfoBanner() {
           <h3 className="text-sm font-medium text-blue-700 dark:text-blue-300">About this service</h3>
           <div className="mt-2 text-sm text-blue-600 dark:text-blue-200">
             <p className="mb-1">
-              GenasisAI aggregates news from multiple sources and generates balanced articles by:
+              TBD aggregates news from multiple sources and generates balanced articles by:
             </p>
             <ul className="list-disc pl-5 space-y-1">
               <li>Scanning reputable sources across the ideological spectrum</li>

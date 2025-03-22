@@ -17,11 +17,8 @@ interface NavigationItem {
 const navigationItems: NavigationItem[] = [
   { name: 'Home', href: '/', current: true },
   { name: 'Compare', href: '/compare', current: false },
-  { name: 'News', href: '/news', current: false },
-  { name: 'Topics', href: '/topics', current: false },
   { name: 'Explore', href: '/explore', current: false },
   { name: '3D Demo', href: '/three-demo', current: false },
-  { name: 'Cityscape', href: '/cityscape-demo', current: false },
 ];
 
 export default function Navbar() {

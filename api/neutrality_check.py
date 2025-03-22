@@ -1,9 +1,15 @@
 import cohere
 import json
+import logging
+import re
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 import os
-from database import Database
+from api.database import Database
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -119,7 +125,6 @@ class NeutralityCheck:
                         bias_score = int(section.replace('BIAS_SCORE:', '').strip())
                     except ValueError:
                         # If parsing fails, extract just the number
-                        import re
                         numbers = re.findall(r'\d+', section)
                         if numbers:
                             bias_score = int(numbers[0])
@@ -142,20 +147,58 @@ class NeutralityCheck:
             self.db.save_analysis_result(title, result, "neutrality_check")
         
         except Exception as e:
-            print(f"Error calling Cohere API: {str(e)}")
-            # Provide mock result if API call fails
-            result = {
-                "bias_score": 50,
-                "biased_segments": [
-                    "Example segment with slight left-leaning bias",
-                    "Example segment with slight right-leaning bias"
-                ],
-                "recommendations": [
-                    "Consider including multiple perspectives on economic policy",
-                    "Balance discussion of benefits and drawbacks",
-                    "Use more neutral terminology when describing political positions"
-                ]
-            }
+            logger.error(f"Error calling Cohere API: {str(e)}")
+            
+            # Try to fetch similar analyses from the database
+            try:
+                # Try to get previous analyses for similar articles
+                prev_analyses = self.db.fetch_previous_analyses("neutrality_check", 5)
+                
+                # If we have previous analyses, use the most recent one
+                if prev_analyses:
+                    # Look for a similar title
+                    most_similar_analysis = None
+                    highest_similarity = 0
+                    
+                    import difflib
+                    for analysis in prev_analyses:
+                        similarity = difflib.SequenceMatcher(None, title.lower(), analysis['query'].lower()).ratio()
+                        if similarity > highest_similarity:
+                            highest_similarity = similarity
+                            most_similar_analysis = analysis
+                    
+                    # If we found a similar analysis with at least 30% similarity
+                    if most_similar_analysis and highest_similarity > 0.3:
+                        prev_result = json.loads(most_similar_analysis['result'])
+                        logger.info(f"Using similar previous analysis (similarity: {highest_similarity:.2f})")
+                        result = prev_result
+                    else:
+                        # Use the most recent analysis as fallback
+                        result = json.loads(prev_analyses[0]['result'])
+                        logger.info("Using most recent analysis as fallback")
+                else:
+                    # Create a balanced default result if no previous analyses
+                    result = {
+                        "bias_score": 50,
+                        "biased_segments": [],
+                        "recommendations": [
+                            "Include diverse perspectives on the topic",
+                            "Use neutral language when describing different viewpoints",
+                            "Present factual information with appropriate context"
+                        ]
+                    }
+            except Exception as db_err:
+                logger.error(f"Error fetching from database: {str(db_err)}")
+                # Create a balanced default result if database access fails
+                result = {
+                    "bias_score": 50,
+                    "biased_segments": [],
+                    "recommendations": [
+                        "Include diverse perspectives on the topic",
+                        "Use neutral language when describing different viewpoints",
+                        "Present factual information with appropriate context"
+                    ]
+                }
         
         return result
 

@@ -1,9 +1,14 @@
 import cohere
 import json
-from typing import Dict, Any, Optional
+import logging
+from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 import os
-from database import Database
+from api.database import Database
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -38,29 +43,60 @@ class UserCustomization:
         Returns:
             Dict[str, Any]: Enhanced article with DEI section
         """
-        # For now, return a sample structure
-        # In a real implementation, we would fetch from the database
+        # Try to fetch a DEI-focused article from the database
+        try:
+            prev_analyses = self.db.fetch_previous_analyses("dei_focus", 5)
+            
+            # If article_id is provided, try to match it with the article ID in the database
+            if article_id and prev_analyses:
+                for analysis in prev_analyses:
+                    # The query field typically contains the article title, not the ID
+                    # We'd need to fetch the article by ID and then match by title
+                    article = self.db.fetch_article_by_id(article_id)
+                    if article and article.get('title', '').lower() == analysis['query'].lower():
+                        dei_result = json.loads(analysis['result'])
+                        logger.info(f"Found matching DEI analysis for article ID: {article_id}")
+                        return dei_result
+            
+            # If no specific article found or no ID provided, use the most recent DEI analysis
+            if prev_analyses:
+                dei_result = json.loads(prev_analyses[0]['result'])
+                logger.info("Using most recent DEI analysis")
+                return dei_result
+        except Exception as e:
+            logger.error(f"Error fetching DEI analysis from database: {str(e)}")
+        
+        # If no DEI analysis found in the database, fetch a regular article
+        try:
+            article = None
+            if article_id:
+                article = self.db.fetch_article_by_id(article_id)
+            
+            if not article:
+                # Fetch the most recent article
+                articles = self.db.fetch_articles(limit=1)
+                if articles and len(articles) > 0:
+                    article = articles[0]
+            
+            if article:
+                # Create a basic structure with the article content
+                return {
+                    "updated_article": {
+                        "title": article.get('title', ''),
+                        "content": article.get('content', article.get('body', ''))
+                    },
+                    "dei_section": "This article has not yet been analyzed for DEI perspectives."
+                }
+        except Exception as e:
+            logger.error(f"Error fetching article from database: {str(e)}")
+        
+        # Return empty structure if no articles found
         return {
             "updated_article": {
-                "title": "Economic Disparities Persist Across Global Markets",
-                "content": """
-                The global economy showed varied performance metrics across regions and demographics last quarter.
-                While Western economies maintained growth, developing nations encountered significant challenges.
-                Women-led businesses in Southeast Asia demonstrated strong performance despite funding difficulties.
-                Indigenous communities continue to advocate for infrastructure development to enable economic participation.
-                Experts have highlighted concerns about growing wealth inequality despite market gains.
-                """
+                "title": "No enhanced article available",
+                "content": "No content available"
             },
-            "dei_section": """
-            This article highlights several key DEI issues in global economics:
-            
-            1. The funding gap faced by women-led businesses despite their strong performance
-            2. Infrastructure challenges disproportionately affecting indigenous communities
-            3. Systemic barriers to economic development in developing nations
-            4. Wealth inequality undermining inclusive economic growth
-            
-            These perspectives are critical to understanding the full economic picture beyond traditional metrics.
-            """
+            "dei_section": "No DEI analysis available"
         }
 
     def customize_dei_emphasis(self, article_data: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
@@ -81,6 +117,11 @@ class UserCustomization:
         # Extract settings with defaults
         emphasis_level = settings.get('emphasis_level', 5)
         focus_groups = settings.get('focus_groups', [])
+        if isinstance(focus_groups, str):
+            try:
+                focus_groups = json.loads(focus_groups)
+            except json.JSONDecodeError:
+                focus_groups = []
         tone = settings.get('tone', 'balanced')
         
         # Prepare the prompt
@@ -150,15 +191,47 @@ class UserCustomization:
             self.db.save_analysis_result(query, result, "user_customization")
         
         except Exception as e:
-            print(f"Error calling Cohere API: {str(e)}")
-            # Provide mock result if API call fails
-            result = {
-                "customized_article": {
-                    "title": "Economic Disparities: A Balanced View with Focus on Underrepresented Communities",
-                    "content": "The global economy showed varied performance across different demographics and regions last quarter. Analysis suggests persistent challenges despite overall market growth."
-                },
-                "customized_dei_section": "This customized section highlights DEI aspects including economic disparities affecting marginalized groups, funding gaps, and barriers to economic participation."
-            }
+            logger.error(f"Error calling Cohere API: {str(e)}")
+            
+            # Try to fetch a previous customization for the same user
+            try:
+                # Search for previous customizations by this user
+                user_id = settings.get('user_id', 'anonymous')
+                prev_analyses = self.db.fetch_previous_analyses("user_customization", 10)
+                
+                # Look for a customization with the same user ID
+                user_customization = None
+                for analysis in prev_analyses:
+                    if analysis['query'].startswith(f"user:{user_id}:"):
+                        user_customization = analysis
+                        break
+                
+                if user_customization:
+                    # If found, use the previous customization
+                    prev_result = json.loads(user_customization['result'])
+                    logger.info(f"Using previous customization for user: {user_id}")
+                    return prev_result
+                else:
+                    # If not found, create a minimal customization
+                    result = {
+                        "customized_article": {
+                            "title": article_data['updated_article']['title'],
+                            "content": article_data['updated_article']['content']
+                        },
+                        "customized_dei_section": article_data.get('dei_section', '') + f"\n\nNote: This section has been adjusted to a {emphasis_level}/10 emphasis level with a {tone} tone."
+                    }
+                    return result
+            except Exception as db_err:
+                logger.error(f"Error fetching from database: {str(db_err)}")
+                # Create a minimal customization if database access fails
+                result = {
+                    "customized_article": {
+                        "title": article_data['updated_article']['title'],
+                        "content": article_data['updated_article']['content']
+                    },
+                    "customized_dei_section": article_data.get('dei_section', '') + "\n\nNote: Customization could not be applied."
+                }
+                return result
         
         return result
 

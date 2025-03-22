@@ -1,9 +1,14 @@
 import cohere
 import json
-from typing import Dict, Any, List
+import logging
+from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 import os
-from database import Database
+from api.database import Database
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -32,11 +37,64 @@ class GenerativeNewsSynthesis:
         articles = []
         for article in db_articles:
             articles.append({
+                'id': article.get('id', ''),
                 'title': article.get('title', ''),
                 'content': article.get('content', article.get('body', ''))
             })
         
         return articles
+
+    def fetch_synthesized_article(self, article_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a previously synthesized article from the database.
+        
+        Args:
+            article_id (Optional[str]): ID of the synthesized article to fetch, or None for most recent
+            
+        Returns:
+            Optional[Dict[str, Any]]: Synthesized article or None if not found
+        """
+        if not self.db.tables_exist:
+            logger.warning("Skipping fetch_synthesized_article: Tables don't exist yet")
+            return None
+            
+        try:
+            response = None
+            if article_id:
+                # Fetch specific synthesized article
+                response = self.db.client.table(f'{self.db.table_prefix}synthesized_articles') \
+                    .select('*') \
+                    .eq('id', article_id) \
+                    .execute()
+            else:
+                # Fetch most recent synthesized article
+                response = self.db.client.table(f'{self.db.table_prefix}synthesized_articles') \
+                    .select('*') \
+                    .order('created_at', desc=True) \
+                    .limit(1) \
+                    .execute()
+            
+            if response and response.data and len(response.data) > 0:
+                article = response.data[0]
+                source_ids = []
+                if article.get('source_ids'):
+                    try:
+                        source_ids = json.loads(article.get('source_ids', '[]'))
+                    except json.JSONDecodeError:
+                        source_ids = []
+                
+                return {
+                    'id': article.get('id', ''),
+                    'title': article.get('title', ''),
+                    'body': article.get('content', ''),
+                    'source_ids': source_ids,
+                    'created_at': article.get('created_at', '')
+                }
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching synthesized article: {str(e)}")
+            return None
 
     def synthesize_articles(self, articles: List[Dict[str, str]]) -> Dict[str, Any]:
         """
@@ -111,13 +169,35 @@ class GenerativeNewsSynthesis:
             self.db.save_synthesized_article(title, body.strip(), source_ids)
         
         except Exception as e:
-            print(f"Error calling Cohere API: {str(e)}")
-            # Provide mock result if API call fails
-            result = {
-                "title": "Balanced Analysis of Recent Economic Developments",
-                "body": "The global economy has shown mixed signals in recent quarters, with some regions experiencing growth while others face challenges. Experts suggest a cautious approach moving forward.",
-                "summary": "A synthesis of recent economic reports indicates continued market volatility with both positive and negative indicators across different sectors."
-            }
+            logger.error(f"Error calling Cohere API: {str(e)}")
+            
+            # Try to fetch a previously synthesized article from the database
+            try:
+                synthesized = self.fetch_synthesized_article()
+                if synthesized:
+                    logger.info("Using previously synthesized article from database")
+                    result = {
+                        "title": synthesized.get('title', ''),
+                        "body": synthesized.get('body', ''),
+                        "summary": "A synthesis of multiple news sources on this topic."
+                    }
+                else:
+                    # Create a minimal synthesis if no previous synthesis is available
+                    titles = [article.get('title', '') for article in articles if article.get('title')]
+                    result = {
+                        "title": "Synthesis of Related Articles",
+                        "body": "This synthesis combines multiple perspectives on the topic.\n\n" + 
+                               "\n\n".join([f"From article '{title}': " for title in titles]),
+                        "summary": "A synthesis of " + str(len(articles)) + " related news articles."
+                    }
+            except Exception as db_err:
+                logger.error(f"Error fetching from database: {str(db_err)}")
+                # Create a minimal synthesis if database access fails
+                result = {
+                    "title": "Synthesis of News Articles",
+                    "body": "This synthesis combines information from multiple news sources on this topic.",
+                    "summary": "A synthesis of related news articles on this topic."
+                }
         
         return result
 

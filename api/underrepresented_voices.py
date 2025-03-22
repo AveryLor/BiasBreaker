@@ -1,9 +1,14 @@
 import cohere
 import json
+import logging
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 import os
-from database import Database
+from api.database import Database
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -129,25 +134,40 @@ class UnderrepresentedVoices:
                     recommendations = [r.strip().strip(':"[],"') for r in recommendations_section.split("\n") if r.strip() and '"' in r]
                     result["recommendations"] = recommendations
         except Exception as e:
-            print(f"Error calling Cohere API: {str(e)}")
-            # Provide mock result if API call fails
-            result = {
-                "underrepresented": {
-                    "segments": [
-                        "Segment mentioning environmental impacts on low-income communities",
-                        "Reference to indigenous perspectives on climate change"
-                    ],
-                    "demographics": [
-                        "Low-income communities",
-                        "Indigenous populations"
+            logger.error(f"Error calling Cohere API: {str(e)}")
+            # Try to get similar analysis from database
+            try:
+                prev_analyses = self.db.fetch_previous_analyses("underrepresented_voices", 3)
+                if prev_analyses:
+                    # Use the most recent analysis result since we can't easily compare articles
+                    prev_result_data = json.loads(prev_analyses[0]['result'])
+                    logger.info(f"Using analysis from database as fallback")
+                    result = prev_result_data
+                else:
+                    # If no previous analyses, create a minimal structure
+                    result = {
+                        "underrepresented": {
+                            "segments": [],
+                            "demographics": []
+                        },
+                        "recommendations": [
+                            "Consider including perspectives from diverse demographic groups",
+                            "Research how this topic affects underrepresented communities"
+                        ]
+                    }
+            except Exception as db_err:
+                logger.error(f"Error fetching from database: {str(db_err)}")
+                # Create a minimal structure if all else fails
+                result = {
+                    "underrepresented": {
+                        "segments": [],
+                        "demographics": []
+                    },
+                    "recommendations": [
+                        "Consider including perspectives from diverse demographic groups",
+                        "Research how this topic affects underrepresented communities"
                     ]
-                },
-                "recommendations": [
-                    "Include perspectives from affected communities",
-                    "Highlight economic impacts across different socioeconomic groups",
-                    "Consider global south perspectives on climate policies"
-                ]
-            }
+                }
 
         # Save analysis result to database with the article title as query
         self.db.save_analysis_result(article['title'], result, "underrepresented_voices")

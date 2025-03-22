@@ -3,12 +3,15 @@ import os
 import sys
 import json
 import argparse
+from pprint import pprint
+import traceback
 
 # Add parent directory to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 # Import the module to test
-from user_customization import UserCustomization
+from api.user_customization import UserCustomization
+from api.database import Database
 
 def parse_arguments():
     """Parse command line arguments."""

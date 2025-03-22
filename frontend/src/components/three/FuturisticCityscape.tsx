@@ -697,10 +697,10 @@ function NewsBillboard({ position, rotation, article, scale = 1, buildingId }: {
       onPointerOver={() => setHovered(true)}
       onPointerOut={() => setHovered(false)}
     >
-      {/* Main billboard display */}
+      {/* Main billboard display - double sided */}
       <mesh>
         <planeGeometry args={[3, 1.5]} />
-        <meshBasicMaterial map={texture} transparent side={THREE.FrontSide} /> {/* Only render front side */}
+        <meshBasicMaterial map={texture} transparent side={THREE.DoubleSide} /> {/* Render both sides */}
       </mesh>
       
       {/* Simplified neon frame */}
@@ -1034,6 +1034,10 @@ function CameraControlUpdater() {
   
   useFrame(() => {
     if (controls && 'update' in controls) {
+      // Ensure controls target is always at the center of the buildings
+      if ((controls as any).target) {
+        (controls as any).target.set(0, 0, 0);
+      }
       (controls as any).update();
     }
   });
@@ -1079,37 +1083,34 @@ export default function FuturisticCityscape({ newsArticles }: { newsArticles: Ne
   };
   
   return (
-    <div className="w-full h-[500px] relative">
+    // Remove fixed height to fill entire container
+    <div className="w-full h-full absolute inset-0">
       <Canvas
         shadows={false} // Disable shadows completely for performance
         dpr={[1, 1.5]} // Limit resolution scaling
-        camera={{ position: [0, 15, 40], fov: 60 }}
+        camera={{ position: [0, 35, 55], fov: 30 }} // Adjusted to look at building center
         gl={{ 
           antialias: false, // Disable antialias for performance
           powerPreference: 'high-performance' 
         }}
+        // Add this to prevent scroll-triggered re-renders
+        resize={{ scroll: false }}
       >
-        {/* Camera control updater for auto-rotation */}
-        <CameraControlUpdater />
-        
         {/* Background color */}
         <color attach="background" args={['#050518']} />
         
         {/* Atmospheric fog - simplified */}
-        <fog attach="fog" args={['#090420', 20, 70]} />
+        <fog attach="fog" args={['#090420', 80, 100]} />
         
-        {/* Orbital camera controls - limited */}
+        {/* Orbital camera controls - auto-rotation only */}
         <OrbitControls
-          enableZoom={true}
+          enableZoom={false}
           enablePan={false}
-          enableDamping={true} // Re-enable damping for smooth auto-rotation
-          dampingFactor={0.05}
-          maxPolarAngle={Math.PI / 2 - 0.1}
-          minDistance={30} // Increased from 15 to restrict zoom-in
-          maxDistance={35} // Reduced from 50 to restrict zoom-out
-          autoRotate={true} // Enable auto-rotation
-          autoRotateSpeed={2} // Slow rotation speed
-          rotateSpeed={0.7} // Adjust manual rotation speed
+          enableRotate={false}
+          enableDamping={false} // Disable damping for better performance
+          target={[-2.5, 8, 0]} // Look at the middle of buildings (above ground level)
+          autoRotate={true}
+          autoRotateSpeed={0.5} // Slower rotation for better viewing
         />
         
         {/* Main lighting - simplified */}

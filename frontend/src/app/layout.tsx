@@ -30,8 +30,10 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-50 dark:bg-gray-900`}
       >
         <ThemeProvider>
-          <Navbar />
-          <main className="min-h-screen pt-16 pb-12">
+          <div className="relative z-20">
+            <Navbar />
+          </div>
+          <main className="relative">
             {children}
           </main>
         </ThemeProvider>

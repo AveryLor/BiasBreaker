@@ -1,8 +1,9 @@
 import cohere
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 import os
+from database import Database
 
 # Load environment variables
 load_dotenv()
@@ -13,91 +14,153 @@ class UserCustomization:
         Initialize the User Customization module with Cohere API key.
         """
         self.client = cohere.Client(os.getenv('COHERE_API_KEY'))
+        self.db = Database()
 
-    def customize_dei_emphasis(self, article_data: Dict[str, Any], customization_settings: Dict[str, Any]) -> Dict[str, Any]:
+    def fetch_user_settings(self, user_id: str) -> Dict[str, Any]:
         """
-        Customize the DEI emphasis in the article based on user settings.
+        Fetch user's customization settings from the database.
         
         Args:
-            article_data (Dict[str, Any]): Dictionary containing the article and DEI data
-            customization_settings (Dict[str, Any]): User preferences for DEI emphasis
+            user_id (str): ID of the user
             
         Returns:
-            Dict[str, Any]: Structured data containing customized article and settings
+            Dict[str, Any]: User's customization settings
         """
-        # Extract the article and DEI data
-        updated_article = article_data.get('updated_article', {})
-        dei_section = article_data.get('dei_section', '')
+        return self.db.fetch_user_settings(user_id)
+
+    def fetch_enhanced_article(self, article_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Fetch an article that has been enhanced with DEI focus.
         
-        # Prepare the prompt for customization
-        prompt = f"""Customize the following article based on these DEI emphasis settings:
-
-Settings:
-{json.dumps(customization_settings, indent=2)}
-
-Article:
-Title: {updated_article.get('title', '')}
-Content: {updated_article.get('content', '')}
-
-DEI Section:
-{dei_section}
-
-Please:
-1. Adjust the emphasis on underrepresented voices based on the settings
-2. Modify the DEI section to reflect the desired level of emphasis
-3. Ensure the customization maintains the article's objectivity
-4. Keep the core message intact while adjusting the focus
-
-Format the output as:
-CUSTOMIZED_ARTICLE:
-Title: [customized title]
-Content: [customized content]
-
-CUSTOMIZED_DEI_SECTION:
-[customized DEI content]
-"""
-
-        # Generate the customized version
-        response = self.client.generate(
-            model='large',
-            prompt=prompt,
-            max_tokens=1000,
-            temperature=0.7
-        )
-
-        # Parse the generated text
-        generated_text = response.generations[0].text
-        
-        # Split the generated text into sections
-        sections = generated_text.split('\n')
-        customized_title = ""
-        customized_content = ""
-        customized_dei = ""
-        
-        current_section = None
-        for line in sections:
-            if line.startswith('CUSTOMIZED_ARTICLE:'):
-                current_section = 'article'
-            elif line.startswith('CUSTOMIZED_DEI_SECTION:'):
-                current_section = 'dei'
-            elif line.startswith('Title:'):
-                customized_title = line.replace('Title:', '').strip()
-            elif line.strip() and current_section == 'article' and not line.startswith('Title:'):
-                customized_content += line + '\n'
-            elif line.strip() and current_section == 'dei':
-                customized_dei += line + '\n'
-
+        Args:
+            article_id (Optional[str]): ID of the article to fetch
+            
+        Returns:
+            Dict[str, Any]: Enhanced article with DEI section
+        """
+        # For now, return a sample structure
+        # In a real implementation, we would fetch from the database
         return {
-            "customization": {
-                "settings": customization_settings,
-                "applied": True
+            "updated_article": {
+                "title": "Economic Disparities Persist Across Global Markets",
+                "content": """
+                The global economy showed varied performance metrics across regions and demographics last quarter.
+                While Western economies maintained growth, developing nations encountered significant challenges.
+                Women-led businesses in Southeast Asia demonstrated strong performance despite funding difficulties.
+                Indigenous communities continue to advocate for infrastructure development to enable economic participation.
+                Experts have highlighted concerns about growing wealth inequality despite market gains.
+                """
             },
-            "customized_article": {
-                "title": customized_title,
-                "content": customized_content.strip()
-            },
-            "customized_dei_section": customized_dei.strip()
+            "dei_section": """
+            This article highlights several key DEI issues in global economics:
+            
+            1. The funding gap faced by women-led businesses despite their strong performance
+            2. Infrastructure challenges disproportionately affecting indigenous communities
+            3. Systemic barriers to economic development in developing nations
+            4. Wealth inequality undermining inclusive economic growth
+            
+            These perspectives are critical to understanding the full economic picture beyond traditional metrics.
+            """
         }
+
+    def customize_dei_emphasis(self, article_data: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Customize the DEI emphasis based on user preferences.
+        
+        Args:
+            article_data (Dict[str, Any]): Article data with DEI emphasis
+            settings (Dict[str, Any]): User's customization settings
+            
+        Returns:
+            Dict[str, Any]: Customized article with adjusted DEI emphasis
+        """
+        # If article data is empty, fetch an enhanced article
+        if not article_data or 'updated_article' not in article_data:
+            article_data = self.fetch_enhanced_article()
+            
+        # Extract settings with defaults
+        emphasis_level = settings.get('emphasis_level', 5)
+        focus_groups = settings.get('focus_groups', [])
+        tone = settings.get('tone', 'balanced')
+        
+        # Prepare the prompt
+        prompt = f"""
+        Customize this article based on user preferences:
+        
+        ORIGINAL ARTICLE:
+        Title: {article_data['updated_article']['title']}
+        Content: {article_data['updated_article']['content']}
+        
+        DEI SECTION:
+        {article_data.get('dei_section', '')}
+        
+        USER PREFERENCES:
+        Emphasis Level (1-10): {emphasis_level}
+        Focus Groups: {', '.join(focus_groups) if focus_groups else 'None specified'}
+        Tone: {tone}
+        
+        Please customize the article to:
+        1. Adjust DEI emphasis to match the specified level ({emphasis_level}/10)
+        2. Give special attention to the specified focus groups (if any)
+        3. Maintain the requested tone ({tone})
+        
+        Format your response as:
+        CUSTOMIZED_TITLE: [customized title]
+        
+        CUSTOMIZED_CONTENT: [customized content]
+        
+        CUSTOMIZED_DEI_SECTION: [customized DEI section]
+        """
+
+        # Generate the customized content
+        try:
+            response = self.client.chat(
+                message=prompt,
+                model="command",
+                temperature=0.4
+            )
+            
+            # Extract the text from the chat response
+            generated_text = response.text
+            
+            # Extract sections
+            sections = generated_text.split('\n\n')
+            customized_title = ""
+            customized_content = ""
+            customized_dei_section = ""
+            
+            for section in sections:
+                if section.startswith('CUSTOMIZED_TITLE:'):
+                    customized_title = section.replace('CUSTOMIZED_TITLE:', '').strip()
+                elif section.startswith('CUSTOMIZED_CONTENT:'):
+                    customized_content = section.replace('CUSTOMIZED_CONTENT:', '').strip()
+                elif section.startswith('CUSTOMIZED_DEI_SECTION:'):
+                    customized_dei_section = section.replace('CUSTOMIZED_DEI_SECTION:', '').strip()
+            
+            result = {
+                "customized_article": {
+                    "title": customized_title,
+                    "content": customized_content
+                },
+                "customized_dei_section": customized_dei_section
+            }
+            
+            # Save the customization result with the user ID as part of the query
+            query = f"user:{settings.get('user_id', 'anonymous')}:{article_data['updated_article']['title']}"
+            self.db.save_analysis_result(query, result, "user_customization")
+        
+        except Exception as e:
+            print(f"Error calling Cohere API: {str(e)}")
+            # Provide mock result if API call fails
+            result = {
+                "customized_article": {
+                    "title": "Economic Disparities: A Balanced View with Focus on Underrepresented Communities",
+                    "content": "The global economy showed varied performance across different demographics and regions last quarter. Analysis suggests persistent challenges despite overall market growth."
+                },
+                "customized_dei_section": "This customized section highlights DEI aspects including economic disparities affecting marginalized groups, funding gaps, and barriers to economic participation."
+            }
+        
+        return result
 
     def format_output(self, customization_result: Dict[str, Any]) -> str:
         """

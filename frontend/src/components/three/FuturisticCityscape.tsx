@@ -23,7 +23,7 @@ interface NewsArticle {
 }
 
 // Building generator with instanced meshes for performance
-function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: NewsArticle[] }) {
+function Buildings({ count = 25, newsArticles }: { count: number, newsArticles: NewsArticle[] }) {
   const { theme } = useTheme();
   const instancedMeshRef = useRef<THREE.InstancedMesh>(null);
   const { viewport } = useThree();
@@ -53,27 +53,19 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
     "Latest cyberpunk technology revealed",
     "Corporate scandal rocks tech industry",
     "AI advancement changes global landscape",
-    "Network security breach affects millions",
-    "Virtual reality reaches new milestone",
-    "Drone regulations tightened in metro areas",
-    "Cryptocurrency market sees major shift",
-    "Biotech implants become mainstream",
-    "Climate control systems fail in sector 7"
+    "Network security breach affects millions"
   ];
   
   const fallbackCategories = [
-    "News", "Tech", "Business", "Science", "Politics", 
-    "Health", "Entertainment", "Sports", "Security", "Environment"
+    "News", "Tech", "Business", "Science", "Politics"
   ];
 
-  // Cyberpunk color palette
+  // Simplified cyberpunk color palette
   const neonColors = [
     new THREE.Color('#FF00FF'), // Magenta
     new THREE.Color('#00FFFF'), // Cyan
     new THREE.Color('#FF2D00'), // Orange-red
     new THREE.Color('#39FF14'), // Neon green
-    new THREE.Color('#FE01B1'), // Pink
-    new THREE.Color('#01FEFE'), // Light blue
   ];
   
   // Define interface for building data
@@ -98,8 +90,7 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
   const buildingData = useMemo(() => {
     const data: BuildingData[] = [];
     const gridSize = Math.ceil(Math.sqrt(count));
-    const spacing = 5;
-    const citySize = gridSize * spacing;
+    const spacing = 6; // Increased spacing for cleaner layout
     
     // Generate various building types and positions in a grid pattern
     for (let i = 0; i < count; i++) {
@@ -107,14 +98,26 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
       const col = i % gridSize;
       
       // Add some variation to building positions
-      const x = (col - gridSize/2) * spacing + (Math.random() - 0.5) * spacing * 0.7;
-      const z = (row - gridSize/2) * spacing + (Math.random() - 0.5) * spacing * 0.7;
+      const x = (col - gridSize/2) * spacing + (Math.random() - 0.5) * spacing * 0.5;
+      const z = (row - gridSize/2) * spacing + (Math.random() - 0.5) * spacing * 0.5;
       
-      // Building height variation (taller for cyberpunk city)
-      const height = 3 + Math.random() * 12;
+      // Building height variation - more distinct heights
+      const heightCategory = Math.floor(Math.random() * 3); // 3 height categories
+      let height;
       
-      // Building type/style (0: skyscraper, 1: wider building, 2: industrial)
-      const buildingType = Math.floor(Math.random() * 3);
+      if (heightCategory === 0) {
+        // Short buildings
+        height = 3 + Math.random() * 2;
+      } else if (heightCategory === 1) {
+        // Medium buildings
+        height = 6 + Math.random() * 3;
+      } else {
+        // Tall buildings (skyscrapers)
+        height = 10 + Math.random() * 4;
+      }
+      
+      // Building type/style (0: skyscraper, 1: wider building)
+      const buildingType = Math.floor(Math.random() * 2);
       
       // Base color with slight variations - darker for cyberpunk aesthetic
       const baseColorHSL = new THREE.Color('#0F1629').getHSL({h: 0, s: 0, l: 0});
@@ -124,13 +127,13 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
         baseColorHSL.l + (Math.random() - 0.5) * 0.1
       );
       
-      // Emissive lighting for windows - brighter for cyberpunk
-      const hasEmissive = Math.random() > 0.2; // More emissive buildings
+      // Emissive lighting for windows - only on some buildings
+      const hasEmissive = Math.random() > 0.3;
       const emissiveColor = neonColors[Math.floor(Math.random() * neonColors.length)];
-      const emissiveIntensity = 0.4 + Math.random() * 0.6; // Brighter
+      const emissiveIntensity = 0.5 + Math.random() * 0.5;
       
-      // Should this building have a billboard? Only about 1/3 of buildings get billboards
-      const hasBillboard = Math.random() > 0.25; // Increased probability (was 0.65)
+      // Only taller buildings get billboards, and fewer of them
+      const hasBillboard = heightCategory === 2 && Math.random() > 0.5;
       
       // Assign a specific news outlet to this billboard
       let billboardOutlet = null;
@@ -146,7 +149,6 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
           };
         } else {
           // Enhanced fallback articles with more variety
-          // Select random content for variety
           billboardArticle = {
             id: i,
             title: fallbackTitles[i % fallbackTitles.length],
@@ -155,6 +157,9 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
           };
         }
       }
+      
+      // Limit neon outlines to only specific buildings
+      const hasNeonOutline = heightCategory === 2 && Math.random() > 0.6;
       
       data.push({
         position: [x, height / 2, z],
@@ -173,9 +178,8 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
         billboardArticle: hasBillboard ? billboardArticle : null,
         billboardHeight: height,
         billboardRotation: Math.random() * Math.PI * 2,
-        hasNeonOutline: Math.random() > 0.3, // Some buildings get neon outlines
-        neonColor: neonColors[Math.floor(Math.random() * neonColors.length)],
-        // Remove secondary billboard properties
+        hasNeonOutline,
+        neonColor: neonColors[Math.floor(Math.random() * neonColors.length)]
       });
     }
     
@@ -198,8 +202,8 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
         const buildingHeight = building.billboardHeight as number;
         
         // Default billboard dimensions
-        const billboardWidth = 5.0; // Increased width for better overlap detection
-        const billboardDepth = 1.0; // Increased depth for better overlap detection
+        const billboardWidth = 6.0; // Increased width for better overlap detection
+        const billboardDepth = 1.5; // Increased depth for better overlap detection
         
         // Check if this billboard would overlap with any other building
         const wouldOverlap = data.some(otherBuilding => {
@@ -217,15 +221,10 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
           const distanceZ = Math.abs(buildingZ - otherZ);
           
           // Check if billboard would intersect with other building
-          // A billboard positioned on top of building would be at buildingHeight + offset
-          // We need to check if any part of the other building would intersect with this space
-          
-          // First, check horizontal overlap
           const horizontalOverlap = 
             distanceX < (billboardWidth / 2 + otherWidth / 2) && 
             distanceZ < (billboardDepth / 2 + otherDepth / 2);
           
-          // Then check if the other building is tall enough to cause problems
           // Only consider buildings that are almost as tall as where we want to place the billboard
           const otherBuildingTooTall = (otherHeight / 2 + otherBuilding.position[1]) > (buildingHeight - 1);
           
@@ -248,7 +247,7 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
     });
     
     return data;
-  }, [count, theme, newsArticles, newsOutlets, neonColors, fallbackTitles, fallbackCategories]);
+  }, [count, newsArticles, newsOutlets, neonColors, fallbackTitles, fallbackCategories]);
   
   // Update the instanced meshes
   useEffect(() => {
@@ -314,8 +313,8 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
           />
         </mesh>
       ))}
-
-      {/* Add neon outlines to some buildings */}
+      
+      {/* Selectively add neon outlines - only to important buildings */}
       {buildingData.filter(b => b.hasNeonOutline).map((building, i) => (
         <NeonOutline
           key={`outline-${i}`}
@@ -326,12 +325,12 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
         />
       ))}
       
-      {/* Add billboards to buildings with overlap prevention */}
+      {/* Add billboards to buildings with cleaner placement */}
       {buildingData.filter(b => b.hasBillboard && b.billboardArticle).map((building, i) => {
         // Position well above the building top
         const position: [number, number, number] = [
           building.position[0] as number,
-          (building.billboardHeight as number) + 1.5, // Increased height to place billboard well above building
+          (building.billboardHeight as number) + 2, // Increased height for cleaner separation
           building.position[2] as number
         ];
             
@@ -350,7 +349,7 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
             position={position}
             rotation={rotation}
             article={building.billboardArticle as NewsArticle}
-            scale={1.5 + Math.random() * 0.2}
+            scale={2.0} // Larger, consistent size
             buildingId={i}
           />
         );
@@ -359,7 +358,7 @@ function Buildings({ count = 40, newsArticles }: { count: number, newsArticles: 
   );
 }
 
-// Neon building outline
+// Neon building outline - simplified for performance
 function NeonOutline({ position, rotation, scale, color }: {
   position: [number, number, number],
   rotation: [number, number, number],
@@ -368,11 +367,11 @@ function NeonOutline({ position, rotation, scale, color }: {
 }) {
   const lineRef = useRef<THREE.LineSegments>(null);
   
-  // Pulse effect - less frequent updates
+  // Skip the animation frames for better performance
   useFrame(({ clock }) => {
-    if (lineRef.current && Math.floor(clock.getElapsedTime() * 5) % 3 === 0) {
+    if (lineRef.current && Math.floor(clock.getElapsedTime() * 3) % 4 === 0) {
       const material = lineRef.current.material as THREE.LineBasicMaterial;
-      const pulse = Math.sin(clock.getElapsedTime() * 2) * 0.3 + 0.7;
+      const pulse = Math.sin(clock.getElapsedTime() * 1.5) * 0.3 + 0.7;
       material.color.setRGB(
         color.r * pulse,
         color.g * pulse,
@@ -381,7 +380,7 @@ function NeonOutline({ position, rotation, scale, color }: {
     }
   });
   
-  // Simplified geometry (fewer edges)
+  // Ultra simplified geometry
   return (
     <lineSegments
       ref={lineRef}
@@ -392,323 +391,6 @@ function NeonOutline({ position, rotation, scale, color }: {
       <edgesGeometry args={[new THREE.BoxGeometry(1, 1, 1, 1, 1, 1)]} />
       <lineBasicMaterial color={color} linewidth={2} />
     </lineSegments>
-  );
-}
-
-// Animated news billboard
-function NewsBillboard({ position, rotation, article, scale = 1, buildingId }: { 
-  position: [number, number, number],
-  rotation: [number, number, number],
-  article: NewsArticle | null,
-  scale?: number,
-  buildingId: number
-}) {
-  const { theme } = useTheme();
-  const groupRef = useRef<THREE.Group>(null);
-  const [hovered, setHovered] = useState(false);
-  const [clicked, setClicked] = useState(false);
-  const [glitching, setGlitching] = useState(false);
-  
-  // Default article if none provided
-  const safeArticle = useMemo(() => article || {
-    id: Math.random(),
-    title: "System Error: Data Unavailable",
-    source: "ERROR",
-    category: "System"
-  }, [article]);
-  
-  // Create an animated headline
-  const [visibleChars, setVisibleChars] = useState(0);
-  
-  // Less frequent glitch effects
-  useEffect(() => {
-    const glitchInterval = setInterval(() => {
-      // Reduce probability of glitch effect
-      if (Math.random() > 0.85) {
-        setGlitching(true);
-        setTimeout(() => setGlitching(false), 200 + Math.random() * 100);
-      }
-    }, 6000 + Math.random() * 6000); // Less frequent glitch
-    
-    return () => clearInterval(glitchInterval);
-  }, []);
-  
-  // Create display texture - lower resolution and simpler patterns
-  const texture = useMemo(() => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256; // Reduced from 512
-    canvas.height = 128; // Reduced from 256
-    const ctx = canvas.getContext('2d');
-    
-    if (!ctx) return new THREE.CanvasTexture(canvas);
-    
-    // Create glowing billboard background - darker for cyberpunk
-    const bgColor = '#050518';
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Add some tech patterns - more pronounced for cyberpunk
-    ctx.strokeStyle = glitching ? '#FF00FF' : '#00FFFF';
-    ctx.lineWidth = 1;
-    
-    // Simplified grid pattern - fewer lines
-    const gridSpacing = 32; // Increased from 20
-    for (let x = 0; x <= canvas.width; x += gridSpacing) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvas.height);
-      ctx.globalAlpha = 0.2;
-      ctx.stroke();
-    }
-    
-    for (let y = 0; y <= canvas.height; y += gridSpacing) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(canvas.width, y);
-      ctx.globalAlpha = 0.2;
-      ctx.stroke();
-    }
-    
-    // Add a glow - more intense for cyberpunk
-    const gradient = ctx.createRadialGradient(
-      canvas.width/2, canvas.height/2, 0,
-      canvas.width/2, canvas.height/2, canvas.width/2
-    );
-    
-    // Use different colors based on news outlet to create variety
-    let glowColor1, glowColor2, headerColor;
-    
-    // Map specific colors to different news outlets
-    switch(safeArticle.source) {
-      case 'CNN':
-        glowColor1 = 'rgba(255, 0, 0, 0.5)';
-        glowColor2 = 'rgba(255, 0, 0, 0)';
-        headerColor = '#CC0000';
-        break;
-      case 'BBC News':
-        glowColor1 = 'rgba(187, 25, 25, 0.5)';
-        glowColor2 = 'rgba(187, 25, 25, 0)';
-        headerColor = '#BB1919';
-        break;
-      case 'CBC':
-        glowColor1 = 'rgba(255, 0, 0, 0.5)';
-        glowColor2 = 'rgba(255, 0, 0, 0)';
-        headerColor = '#FF0000';
-        break;
-      case 'ABC News':
-        glowColor1 = 'rgba(0, 0, 255, 0.5)';
-        glowColor2 = 'rgba(0, 0, 255, 0)';
-        headerColor = '#0000FF';
-        break;
-      case 'France 24':
-        glowColor1 = 'rgba(0, 0, 255, 0.5)';
-        glowColor2 = 'rgba(0, 0, 255, 0)';
-        headerColor = '#0078D7';
-        break;
-      case 'Xinhua News Agency':
-        glowColor1 = 'rgba(255, 0, 0, 0.5)';
-        glowColor2 = 'rgba(255, 0, 0, 0)';
-        headerColor = '#DE2910';
-        break;
-      case 'Japan Times':
-        glowColor1 = 'rgba(255, 0, 0, 0.5)';
-        glowColor2 = 'rgba(255, 0, 0, 0)';
-        headerColor = '#BC002D';
-        break;
-      default:
-        glowColor1 = 'rgba(0, 255, 255, 0.5)';
-        glowColor2 = 'rgba(0, 255, 255, 0)';
-        headerColor = '#0066FF';
-    }
-    
-    gradient.addColorStop(0, glitching ? 'rgba(255, 0, 255, 0.5)' : glowColor1);
-    gradient.addColorStop(1, glitching ? 'rgba(255, 0, 255, 0)' : glowColor2);
-    ctx.fillStyle = gradient;
-    ctx.globalAlpha = 0.7;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Header bar
-    ctx.fillStyle = glitching ? '#FF00FF' : headerColor;
-    ctx.globalAlpha = 1;
-    ctx.fillRect(0, 0, canvas.width, 40);
-    
-    // Source label
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 24px monospace'; // Using monospace for cyberpunk feel
-    ctx.textAlign = 'center';
-    ctx.fillText(safeArticle.source.toUpperCase(), canvas.width/2, 28);
-    
-    // Category label if available
-    if (safeArticle.category) {
-      ctx.fillStyle = glitching ? '#FF00FF' : '#00FFFF';
-      ctx.font = '16px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(`#${safeArticle.category.toUpperCase()}`, canvas.width - 10, 26);
-    }
-    
-    // Headline (with typing animation effect)
-    const headline = safeArticle.title;
-    const visibleHeadline = headline.substring(0, visibleChars);
-    
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 28px monospace'; // Using monospace font
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    // Add some glitch effect to the text if glitching
-    if (glitching) {
-      const originalText = ctx.fillStyle;
-      ctx.fillStyle = '#FF00FF';
-      
-      // Offset text slightly for chromatic aberration effect
-      const wrapTextGlitch = (text: string, x: number, y: number, maxWidth: number, lineHeight: number) => {
-        const words = text.split(' ');
-        let line = '';
-        let lineY = y;
-        
-        for (let n = 0; n < words.length; n++) {
-          const testLine = line + words[n] + ' ';
-          const metrics = ctx.measureText(testLine);
-          const testWidth = metrics.width;
-          
-          if (testWidth > maxWidth && n > 0) {
-            // Red channel offset
-            ctx.fillStyle = '#FF0000';
-            ctx.fillText(line, x - 2, lineY);
-            
-            // Blue channel offset
-            ctx.fillStyle = '#0000FF';
-            ctx.fillText(line, x + 2, lineY);
-            
-            // Green at original position for "RGB" split effect
-            ctx.fillStyle = '#00FF00';
-            ctx.fillText(line, x, lineY);
-            
-            line = words[n] + ' ';
-            lineY += lineHeight;
-          } else {
-            line = testLine;
-          }
-        }
-        
-        // Final line with glitch effect
-        ctx.fillStyle = '#FF0000';
-        ctx.fillText(line, x - 2, lineY);
-        ctx.fillStyle = '#0000FF';
-        ctx.fillText(line, x + 2, lineY);
-        ctx.fillStyle = '#00FF00';
-        ctx.fillText(line, x, lineY);
-      };
-      
-      wrapTextGlitch(visibleHeadline, canvas.width/2, 120, canvas.width - 40, 34);
-      ctx.fillStyle = originalText;
-    } else {
-      // Normal wrap text function
-      const wrapText = (text: string, x: number, y: number, maxWidth: number, lineHeight: number) => {
-        const words = text.split(' ');
-        let line = '';
-        let lineY = y;
-        
-        for (let n = 0; n < words.length; n++) {
-          const testLine = line + words[n] + ' ';
-          const metrics = ctx.measureText(testLine);
-          const testWidth = metrics.width;
-          
-          if (testWidth > maxWidth && n > 0) {
-            ctx.fillText(line, x, lineY);
-            line = words[n] + ' ';
-            lineY += lineHeight;
-          } else {
-            line = testLine;
-          }
-        }
-        
-        ctx.fillText(line, x, lineY);
-      };
-      
-      wrapText(visibleHeadline, canvas.width/2, 120, canvas.width - 40, 34);
-    }
-    
-    // Add a blinking cursor at the end of the visible text
-    if (visibleChars < headline.length && Math.floor(Date.now() / 500) % 2 === 0) {
-      ctx.fillStyle = glitching ? '#FF00FF' : '#00FFFF'; 
-      ctx.fillRect(canvas.width/2 + ctx.measureText(visibleHeadline).width/2 + 5, 120, 10, 28);
-    }
-    
-    return new THREE.CanvasTexture(canvas);
-  }, [safeArticle, theme, visibleChars, glitching]);
-  
-  // Typing animation - slower to reduce updates
-  useEffect(() => {
-    const typingTimer = setInterval(() => {
-      setVisibleChars(prev => {
-        if (prev >= safeArticle.title.length) {
-          // Completely displayed, pause for a bit then reset
-          setTimeout(() => {
-            setVisibleChars(0);
-          }, 5000); // Longer pause
-          return prev;
-        }
-        return prev + 1;
-      });
-    }, 100); // Slower typing (was 80)
-    
-    return () => clearInterval(typingTimer);
-  }, [safeArticle.title]);
-  
-  // Pulsating and hover effects - less frequent updates
-  useFrame(({ clock }) => {
-    if (groupRef.current && Math.floor(clock.getElapsedTime() * 10) % 2 === 0) {
-      const t = clock.getElapsedTime();
-      
-      // Apply subtle floating motion
-      groupRef.current.position.y = position[1] + Math.sin(t * 0.5) * 0.1;
-      
-      // Apply glitch effect only when glitching
-      if (glitching) {
-        groupRef.current.position.x = position[0] + (Math.random() - 0.5) * 0.1;
-        groupRef.current.position.z = position[2] + (Math.random() - 0.5) * 0.1;
-      } else {
-        groupRef.current.position.x = position[0];
-        groupRef.current.position.z = position[2];
-      }
-      
-      // Grow slightly when hovered - simpler lerp
-      if (hovered) {
-        groupRef.current.scale.set(scale * 1.1, scale * 1.1, scale * 1.1);
-      } else {
-        groupRef.current.scale.set(scale, scale, scale);
-      }
-    }
-  });
-  
-  // Handle interactions
-  const handleClick = () => {
-    setClicked(!clicked);
-  };
-  
-  return (
-    <group
-      ref={groupRef}
-      position={position}
-      rotation={rotation}
-      scale={[scale, scale, scale]}
-      onClick={handleClick}
-      onPointerOver={() => setHovered(true)}
-      onPointerOut={() => setHovered(false)}
-    >
-      {/* Main billboard display - double sided */}
-      <mesh>
-        <planeGeometry args={[3, 1.5]} />
-        <meshBasicMaterial map={texture} transparent side={THREE.DoubleSide} /> {/* Render both sides */}
-      </mesh>
-      
-      {/* Simplified neon frame */}
-      <lineSegments>
-        <edgesGeometry args={[new THREE.PlaneGeometry(3.1, 1.6, 1, 1)]} /> {/* Reduced segments */}
-        <lineBasicMaterial color={glitching ? new THREE.Color('#FF00FF') : new THREE.Color('#00FFFF')} />
-      </lineSegments>
-    </group>
   );
 }
 
@@ -794,114 +476,6 @@ function RoadNetwork() {
   );
 }
 
-// Ambient particles for atmosphere - even more optimized
-function ParticleField() {
-  const count = 80; // Reduced from 150
-  const particleRef = useRef<THREE.Points>(null);
-  
-  // Generate random particle positions
-  const particlesPosition = useMemo(() => {
-    const positions = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      const i3 = i * 3;
-      positions[i3] = (Math.random() - 0.5) * 100;
-      positions[i3 + 1] = Math.random() * 40;
-      positions[i3 + 2] = (Math.random() - 0.5) * 100;
-    }
-    return positions;
-  }, []);
-  
-  // Animate particles - batch updates for better performance
-  useFrame(({ clock }) => {
-    if (particleRef.current && Math.floor(clock.getElapsedTime() * 5) % 3 === 0) { // Even less frequent updates
-      particleRef.current.rotation.y = clock.getElapsedTime() * 0.01;
-      
-      // Make particles gently float up - update all at once
-      const positions = particleRef.current.geometry.attributes.position.array as Float32Array;
-      for (let i = 0; i < count; i++) {
-        const i3 = i * 3;
-        positions[i3 + 1] += 0.05; // Fixed increment, no random for better performance
-        
-        if (positions[i3 + 1] > 40) {
-          positions[i3 + 1] = 0;
-        }
-      }
-      particleRef.current.geometry.attributes.position.needsUpdate = true;
-    }
-  });
-  
-  return (
-    <points ref={particleRef}>
-      <bufferGeometry>
-        <bufferAttribute
-          attach="attributes-position"
-          count={count}
-          array={particlesPosition}
-          itemSize={3}
-          args={[particlesPosition, 3]}
-        />
-      </bufferGeometry>
-      <pointsMaterial
-        size={0.4} // Larger to compensate for fewer particles
-        color="#00FFFF"
-        transparent
-        opacity={0.3}
-        sizeAttenuation
-      />
-    </points>
-  );
-}
-
-// Digital rain effect - further reduced
-function DigitalRain() {
-  const count = 40; // Reduced from 75
-  const linesRef = useRef<THREE.Group>(null);
-  
-  // Generate random digital rain positions
-  const rainLines = useMemo(() => 
-    Array.from({ length: count }).map(() => ({
-      startPosition: [
-        (Math.random() - 0.5) * 100,
-        20 + Math.random() * 20,
-        (Math.random() - 0.5) * 100
-      ] as [number, number, number],
-      length: 1 + Math.random() * 3, // Shorter lines
-      speed: 0.1 + Math.random() * 0.1, // More consistent speed
-      color: '#00FFFF' // Single color for better batching
-    }))
-  , []);
-  
-  // Animate digital rain - batch updates
-  useFrame(() => {
-    if (linesRef.current && linesRef.current.children.length > 0) {
-      linesRef.current.children.forEach((line, i) => {
-        // Move line down
-        line.position.y -= rainLines[i].speed;
-        
-        // Reset when it hits the ground
-        if (line.position.y < -1) {
-          line.position.set(
-            rainLines[i].startPosition[0],
-            rainLines[i].startPosition[1],
-            rainLines[i].startPosition[2]
-          );
-        }
-      });
-    }
-  });
-  
-  return (
-    <group ref={linesRef}>
-      {rainLines.map((line, i) => (
-        <mesh key={i} position={line.startPosition}>
-          <boxGeometry args={[0.05, line.length, 0.05]} />
-          <meshBasicMaterial color={line.color} transparent opacity={0.5} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
 // Lightning flashes
 function LightningEffect() {
   const [intensity, setIntensity] = useState(0);
@@ -931,81 +505,9 @@ function LightningEffect() {
   );
 }
 
-// Flying vehicles (reduced count)
-function FlyingVehicles() {
-  const count = 5; // Reduced from 10
-  const vehiclesRef = useRef<THREE.Group[]>([]);
-  
-  // Vehicle paths
-  const vehiclePaths = useMemo(() => 
-    Array.from({ length: count }).map(() => ({
-      radius: 20 + Math.random() * 40,
-      height: 10 + Math.random() * 25,
-      speed: 0.1 + Math.random() * 0.3,
-      angle: Math.random() * Math.PI * 2,
-      direction: Math.random() > 0.5 ? 1 : -1
-    }))
-  , []);
-  
-  // Update vehicle positions
-  useFrame(({ clock }) => {
-    vehiclesRef.current.forEach((vehicle, i) => {
-      if (!vehicle) return;
-      
-      const { radius, height, speed, angle, direction } = vehiclePaths[i];
-      const t = clock.getElapsedTime();
-      
-      const currentAngle = angle + t * speed * direction;
-      vehicle.position.x = Math.cos(currentAngle) * radius;
-      vehicle.position.z = Math.sin(currentAngle) * radius;
-      vehicle.position.y = height + Math.sin(t * 0.5) * 2;
-      
-      // Make vehicle face direction of movement
-      vehicle.rotation.y = currentAngle + (direction > 0 ? Math.PI / 2 : -Math.PI / 2);
-    });
-  });
-  
-  return (
-    <>
-      {Array.from({ length: count }).map((_, i) => (
-        <group 
-          key={i} 
-          ref={el => { 
-            if (el) vehiclesRef.current[i] = el; 
-          }}
-          position={[
-            Math.cos(vehiclePaths[i].angle) * vehiclePaths[i].radius,
-            vehiclePaths[i].height,
-            Math.sin(vehiclePaths[i].angle) * vehiclePaths[i].radius
-          ]}
-        >
-          {/* Vehicle Body */}
-          <mesh>
-            <boxGeometry args={[1.5, 0.4, 0.7]} />
-            <meshStandardMaterial color="#101010" metalness={0.8} roughness={0.2} />
-          </mesh>
-          
-          {/* Glow */}
-          <pointLight
-            distance={10}
-            intensity={1}
-            color={Math.random() > 0.5 ? '#00FFFF' : '#FF00FF'}
-          />
-          
-          {/* Thrust */}
-          <mesh position={[0, 0, -1]}>
-            <coneGeometry args={[0.2, 0.8, 8]} />
-            <meshBasicMaterial color={Math.random() > 0.5 ? '#00FFFF' : '#FF00FF'} />
-          </mesh>
-        </group>
-      ))}
-    </>
-  );
-}
-
 // Ground plane with reflections
 function CyberpunkGround() {
-  return (
+    return (
     <mesh 
       rotation={[-Math.PI / 2, 0, 0]} 
       position={[0, -0.1, 0]} 
@@ -1024,7 +526,7 @@ function CyberpunkGround() {
         color="#050505"
         metalness={0.5}
       />
-    </mesh>
+        </mesh>
   );
 }
 
@@ -1043,6 +545,265 @@ function CameraControlUpdater() {
   });
   
   return null;
+}
+
+// Animated news billboard
+function NewsBillboard({ position, rotation, article, scale = 1, buildingId }: { 
+  position: [number, number, number],
+  rotation: [number, number, number],
+  article: NewsArticle | null,
+  scale?: number,
+  buildingId: number
+}) {
+  const { theme } = useTheme();
+  const groupRef = useRef<THREE.Group>(null);
+  const [hovered, setHovered] = useState(false);
+  const [clicked, setClicked] = useState(false);
+  const [glitching, setGlitching] = useState(false);
+  
+  // Default article if none provided
+  const safeArticle = useMemo(() => article || {
+    id: Math.random(),
+    title: "System Error: Data Unavailable",
+    source: "ERROR",
+    category: "System"
+  }, [article]);
+  
+  // Create an animated headline
+  const [visibleChars, setVisibleChars] = useState(0);
+  
+  // Less frequent glitch effects
+  useEffect(() => {
+    const glitchInterval = setInterval(() => {
+      // Reduce probability of glitch effect
+      if (Math.random() > 0.85) {
+        setGlitching(true);
+        setTimeout(() => setGlitching(false), 200 + Math.random() * 100);
+      }
+    }, 6000 + Math.random() * 6000); // Less frequent glitch
+    
+    return () => clearInterval(glitchInterval);
+  }, []);
+  
+  // Typing animation for headlines
+  useEffect(() => {
+    if (visibleChars >= safeArticle.title.length) return;
+    
+    const typingTimer = setInterval(() => {
+      setVisibleChars(prev => {
+        if (prev >= safeArticle.title.length) {
+          clearInterval(typingTimer);
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 100); // Slower typing
+    
+    return () => clearInterval(typingTimer);
+  }, [safeArticle.title]);
+  
+  // Create display texture with news headline
+  const texture = useMemo(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; // Reduced resolution
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    
+    if (!ctx) return new THREE.CanvasTexture(canvas);
+    
+    // Create glowing billboard background
+    const bgColor = '#050518';
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Add tech patterns - cyberpunk style
+    ctx.strokeStyle = glitching ? '#FF00FF' : '#00FFFF';
+    ctx.lineWidth = 1;
+    
+    // Simplified grid pattern
+    const gridSpacing = 32;
+    for (let x = 0; x <= canvas.width; x += gridSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.globalAlpha = 0.2;
+      ctx.stroke();
+    }
+    
+    for (let y = 0; y <= canvas.height; y += gridSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.globalAlpha = 0.2;
+      ctx.stroke();
+    }
+    
+    // Add a glow - more intense for cyberpunk
+    let glowColor1, glowColor2, headerColor;
+    
+    // Use different colors based on news outlet to create variety
+    switch(safeArticle.source) {
+      case 'CNN':
+        glowColor1 = 'rgba(255, 0, 0, 0.5)';
+        glowColor2 = 'rgba(255, 0, 0, 0)';
+        headerColor = '#CC0000';
+        break;
+      case 'BBC News':
+        glowColor1 = 'rgba(187, 25, 25, 0.5)';
+        glowColor2 = 'rgba(187, 25, 25, 0)';
+        headerColor = '#BB1919';
+        break;
+      case 'CBC':
+        glowColor1 = 'rgba(255, 0, 0, 0.5)';
+        glowColor2 = 'rgba(255, 0, 0, 0)';
+        headerColor = '#FF0000';
+        break;
+      case 'ABC News':
+        glowColor1 = 'rgba(0, 0, 255, 0.5)';
+        glowColor2 = 'rgba(0, 0, 255, 0)';
+        headerColor = '#0000FF';
+        break;
+      default:
+        // Default to cyan for most outlets
+        glowColor1 = 'rgba(0, 255, 255, 0.5)';
+        glowColor2 = 'rgba(0, 255, 255, 0)';
+        headerColor = '#00FFFF';
+    }
+    
+    // Add radial glow
+    const glow = ctx.createRadialGradient(
+      canvas.width/2, canvas.height/2, 10,
+      canvas.width/2, canvas.height/2, canvas.width/1.5
+    );
+    glow.addColorStop(0, glowColor1);
+    glow.addColorStop(1, glowColor2);
+    
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Source name at top - brighter
+    ctx.fillStyle = headerColor;
+    ctx.font = 'bold 16px Arial';
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
+    ctx.fillText(safeArticle.source.toUpperCase(), canvas.width/2, 20);
+    
+    // Category if available
+    if (safeArticle.category) {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '12px Arial';
+      ctx.fillText(safeArticle.category, canvas.width/2, 40);
+    }
+    
+    // Animated headline text
+    const displayText = safeArticle.title.substring(0, visibleChars);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '14px Arial';
+    ctx.textAlign = 'center';
+    
+    // Add text with line wrapping
+    const words = displayText.split(' ');
+    let line = '';
+    let y = 70; // Start position for text
+    
+    for (let i = 0; i < words.length; i++) {
+      const testLine = line + words[i] + ' ';
+      const metrics = ctx.measureText(testLine);
+      const testWidth = metrics.width;
+      
+      if (testWidth > canvas.width - 20 && i > 0) {
+        ctx.fillText(line, canvas.width/2, y);
+        line = words[i] + ' ';
+        y += 20;
+      } else {
+        line = testLine;
+      }
+    }
+    ctx.fillText(line, canvas.width/2, y);
+    
+    // Add glitch effect
+    if (glitching) {
+      // Add random color strips
+      for (let i = 0; i < 5; i++) {
+        const y = Math.random() * canvas.height;
+        const height = 1 + Math.random() * 3;
+        ctx.fillStyle = Math.random() > 0.5 ? '#FF00FF' : '#00FFFF';
+        ctx.fillRect(0, y, canvas.width, height);
+      }
+      
+      // Displace some pixels
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      
+      for (let i = 0; i < 50; i++) {
+        const x = Math.floor(Math.random() * canvas.width);
+        const y = Math.floor(Math.random() * canvas.height);
+        const pos = (y * canvas.width + x) * 4;
+        
+        // Move some pixels to create "data corruption" look
+        if (pos + canvas.width * 4 < data.length) {
+          data[pos] = data[pos + canvas.width * 4];
+          data[pos + 1] = data[pos + 1 + canvas.width * 4];
+          data[pos + 2] = data[pos + 2 + canvas.width * 4];
+        }
+      }
+      
+      ctx.putImageData(imageData, 0, 0);
+    }
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    return texture;
+  }, [safeArticle, glitching, visibleChars]);
+  
+  // Pulsating and hover effects
+  useFrame(({ clock }) => {
+    if (groupRef.current && Math.floor(clock.getElapsedTime() * 10) % 2 === 0) {
+      const t = clock.getElapsedTime();
+      
+      // Apply subtle floating motion
+      groupRef.current.position.y = position[1] + Math.sin(t * 0.5) * 0.1;
+      
+      // Apply glitch effect only when glitching
+      if (glitching) {
+        groupRef.current.position.x = position[0] + (Math.random() - 0.5) * 0.1;
+        groupRef.current.position.z = position[2] + (Math.random() - 0.5) * 0.1;
+      } else {
+        groupRef.current.position.x = position[0];
+        groupRef.current.position.z = position[2];
+      }
+      
+      // Grow slightly when hovered
+      if (hovered) {
+        groupRef.current.scale.set(scale * 1.1, scale * 1.1, scale * 1.1);
+      } else {
+        groupRef.current.scale.set(scale, scale, scale);
+      }
+    }
+  });
+  
+  return (
+    <group
+      ref={groupRef}
+      position={position}
+      rotation={rotation}
+      scale={[scale, scale, scale]}
+      onClick={() => setClicked(!clicked)}
+      onPointerOver={() => setHovered(true)}
+      onPointerOut={() => setHovered(false)}
+    >
+      {/* Main billboard display - double sided */}
+      <mesh>
+        <planeGeometry args={[3, 1.5]} />
+        <meshBasicMaterial map={texture} transparent side={THREE.DoubleSide} />
+      </mesh>
+      
+      {/* Simplified neon frame */}
+      <lineSegments>
+        <edgesGeometry args={[new THREE.PlaneGeometry(3.1, 1.6, 1, 1)]} />
+        <lineBasicMaterial color={glitching ? new THREE.Color('#FF00FF') : new THREE.Color('#00FFFF')} />
+      </lineSegments>
+    </group>
+  );
 }
 
 // Main component - optimized scene setup
@@ -1070,13 +831,13 @@ export default function FuturisticCityscape({ newsArticles }: { newsArticles: Ne
     if (typeof window === 'undefined') return null;
     
     const { EffectComposer, Bloom } = require('@react-three/postprocessing');
-    
-    return (
+  
+  return (
       <EffectComposer multisampling={0} frameBufferType={undefined}> 
         <Bloom
-          luminanceThreshold={0.4} // Higher threshold = even less bloom
-          luminanceSmoothing={0.7}
-          intensity={1.0} // Reduced intensity
+          luminanceThreshold={0.5} // Even higher threshold = less bloom
+          luminanceSmoothing={0.8}
+          intensity={0.8} // Reduced intensity
         />
       </EffectComposer>
     );
@@ -1110,14 +871,14 @@ export default function FuturisticCityscape({ newsArticles }: { newsArticles: Ne
           enableDamping={false} // Disable damping for better performance
           target={[-2.5, 8, 0]} // Look at the middle of buildings (above ground level)
           autoRotate={true}
-          autoRotateSpeed={0.5} // Slower rotation for better viewing
+          autoRotateSpeed={0.4} // Even slower rotation for better viewing
         />
         
         {/* Main lighting - simplified */}
         <ambientLight intensity={0.15} />
         
         {/* Single directional light */}
-        <directionalLight
+        <directionalLight 
           position={[10, 20, 10]}
           intensity={0.3}
           castShadow={false}
@@ -1125,14 +886,11 @@ export default function FuturisticCityscape({ newsArticles }: { newsArticles: Ne
         
         {/* City elements - core functionality only */}
         <CyberpunkGround />
-        <Buildings count={40} newsArticles={newsArticles} />
-        <ParticleField />
+        <Buildings count={25} newsArticles={newsArticles} />
         
-        {/* Conditionally render these effects based on detected device capability */}
+        {/* Only add flying vehicles on high-end devices */}
         {highPerformanceDevice && (
           <>
-            <DigitalRain />
-            <FlyingVehicles />
             <LightningEffect />
           </>
         )}

@@ -91,9 +91,6 @@ def insert_news_sources(supabase, source_name, source_link, news_information):
 
 print(f"Processing {len(news_sources)} news sources\n")
 
-# List to store article links
-all_article_links = []
-all_articles_data = [] # Create an empty list to hold article data
 
 # Function to determine if URL is likely an article
 def is_likely_article(url, base_domain):
@@ -150,8 +147,11 @@ def is_likely_article(url, base_domain):
     
     return True  # Default to accepting URLs that passed the filters
 
+
 # Function to extract article links from a page
 def extract_article_links(soup, base_url):
+    max = 10
+    counter = 0
     links = []
     base_domain = base_url.split('//')[1].split('/')[0]
     
@@ -228,6 +228,14 @@ def has_article_content(soup):
     # An article should have a reasonable amount of text
     # (typically at least 200 characters)
     return len(article_text) > 200
+
+
+# Minimum required articles before continuing
+MIN_ARTICLES = 10 
+
+# List to store article links
+all_article_links = []
+all_articles_data = [] # Create an empty list to hold article data
 
 # Iterate through each news source
 for source_name, base_url in news_sources.items():

@@ -1,3 +1,2 @@
 # GenesisAI
-
 Genesis AI Hackathon

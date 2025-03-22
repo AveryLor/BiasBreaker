@@ -1,0 +1,3 @@
+Requirements: 
+pip install requests beautifulsoup4
+python /Users/averylor/Desktop/GenesisAI/GenesisAI/webScrapingScript.py

@@ -32,6 +32,18 @@ const ChatbotInput: React.FC<ChatbotInputProps> = ({ onTopicSubmit, initialValue
     if (inputValue.trim()) {
       setSentMessage(inputValue.trim());
       onTopicSubmit(inputValue.trim());
+      
+      // Send the message to the backend
+      fetch('http://localhost:8000/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: inputValue.trim() }),
+      })
+        .then(response => response.json())
+        .catch(error => console.error('Error sending message:', error));
+      
       setInputValue('');
     }
   };

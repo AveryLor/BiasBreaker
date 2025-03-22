@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { SunIcon, MoonIcon } from '@heroicons/react/24/outline';
 import { useTheme } from 'next-themes';
 import { useState, useEffect } from 'react';
 
@@ -53,26 +52,7 @@ export default function Header() {
               >
                 Compare
               </Link>
-              <Link 
-                href="/topics" 
-                className={`px-3 py-2 rounded-md text-sm font-medium ${
-                  pathname === '/topics' 
-                    ? 'bg-gray-100 dark:bg-gray-800 text-blue-600 dark:text-blue-400' 
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
-              >
-                Topics
-              </Link>
-              <Link 
-                href="/about" 
-                className={`px-3 py-2 rounded-md text-sm font-medium ${
-                  pathname === '/about' 
-                    ? 'bg-gray-100 dark:bg-gray-800 text-blue-600 dark:text-blue-400' 
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
-              >
-                About
-              </Link>
+
             </nav>
           </div>
 

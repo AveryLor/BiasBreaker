@@ -1,2 +1,3 @@
-# GenasisAI
+# GenesisAI
+
 Genesis AI Hackathon

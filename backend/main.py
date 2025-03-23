@@ -823,12 +823,156 @@ def get_welcome_text():
         "description": "This text is coming from your FastAPI backend server."
     }
 
+@app.post("/token")
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    """Authenticate user and provide JWT token"""
+    try:
+        # Check if Supabase client is available
+        if not supabase:
+            # For testing without DB access
+            print("Warning: Supabase not available, using hardcoded test user")
+            if form_data.username == "test@example.com" and form_data.password == "password123":
+                access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+                access_token = create_access_token(
+                    data={"sub": form_data.username}, expires_delta=access_token_expires
+                )
+                return {"access_token": access_token, "token_type": "bearer"}
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Incorrect username or password",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        
+        print(f"Attempting login for user: {form_data.username}")
+        
+        # Find user in database
+        user_result = supabase.table("users").select("*").eq("email", form_data.username).execute()
+        
+        if not user_result.data:
+            print(f"User not found: {form_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            
+        user_data = user_result.data[0]
+        stored_hash = user_data.get("hashed_password")
+        
+        if not verify_password(form_data.password, stored_hash):
+            print(f"Invalid password for user: {form_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            
+        # Password is correct, generate token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": form_data.username}, expires_delta=access_token_expires
+        )
+        
+        print(f"Generated token for user: {form_data.username}")
+        return {"access_token": access_token, "token_type": "bearer"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Login error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Login failed: {str(e)}"
+        )
+
+@app.post("/users/", response_model=User)
+async def register_user(user: UserCreate):
+    """Register a new user"""
+    try:
+        # Check if Supabase client is available
+        if not supabase:
+            print("Warning: Supabase not available, cannot register user")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database connection not available"
+            )
+            
+        # Check if email already exists
+        user_check = supabase.table("users").select("*").eq("email", user.email).execute()
+        
+        if user_check.data:
+            print(f"Email already registered: {user.email}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+            
+        # Hash the password
+        hashed_password = get_password_hash(user.password)
+        
+        # Create user data
+        user_data = {
+            "email": user.email,
+            "hashed_password": hashed_password,
+            "name": user.name or "",
+        }
+        
+        print(f"Creating new user: {user.email}")
+        
+        # Insert new user
+        result = supabase.table("users").insert(user_data).execute()
+        
+        if not result.data:
+            print("Error: No data returned from user creation")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user"
+            )
+            
+        new_user = result.data[0]
+        print(f"New user created with ID: {new_user['id']}")
+        
+        # Return user data without password
+        return User(
+            id=new_user["id"],
+            email=new_user["email"],
+            name=new_user.get("name", ""),
+            created_at=new_user.get("created_at", "")
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e)
+        print(f"User registration error: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        
+        if "users" in error_msg and "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database error: users table does not exist"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Registration failed: {error_msg}"
+            )
+
+@app.get("/users/me", response_model=User)
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Get current authenticated user info"""
+    return current_user
+
 @app.get("/")
 def root():
     return {"status": "API is running"}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=False)
 
 
 # variables: keywords 

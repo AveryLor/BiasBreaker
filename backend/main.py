@@ -80,10 +80,19 @@ class User(BaseModel):
     id: int
     email: str
     name: Optional[str] = None
-    created_at: Union[str, datetime.datetime]
+    created_at: Optional[Union[str, datetime.datetime]] = None
 
     class Config:
         arbitrary_types_allowed = True
+
+    # Add method to ensure id is always an integer
+    @property
+    def user_id(self) -> int:
+        """Returns the user ID as an integer."""
+        try:
+            return int(self.id)
+        except (ValueError, TypeError):
+            return 0  # Default fallback ID
 
 class Token(BaseModel):
     access_token: str
@@ -138,23 +147,44 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         # Get user from database
         if not supabase:
             # For testing without Supabase
+            print("Supabase not available, returning mock user")
             return User(email=email, id=1)
         
-        user_result = supabase.table("users").select("*").eq("email", email).execute()
-        if not user_result.data:
-            print(f"User not found in database: {email}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found",
-                headers={"WWW-Authenticate": "Bearer"},
+        try:
+            print(f"Getting user info for email: {email}")
+            user_result = supabase.table("users").select("*").eq("email", email).execute()
+            
+            if not user_result.data:
+                print(f"User not found in database: {email}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="User not found",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+                
+            user_data = user_result.data[0]
+            print(f"Found user: {user_data.get('email')} with id: {user_data.get('id')}")
+            
+            # Create User object with id explicitly cast to int
+            user = User(
+                email=user_data.get("email", ""),
+                id=int(user_data.get("id", 0)),
+                name=user_data.get("name"),
+                created_at=user_data.get("created_at")
             )
             
-        user_data = user_result.data[0]
-        
-        return User(
-            email=user_data["email"],
-            id=user_data["id"]
-        )
+            print(f"Created User object with id: {user.id}, user_id: {user.user_id}")
+            return user
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Error getting user from database: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return mock user for testing purposes
+            return User(email=email, id=1)
+            
     except jwt.JWTError as e:
         print(f"JWT error: {e}")
         raise HTTPException(
@@ -164,6 +194,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         )
     except Exception as e:
         print(f"Unexpected error in get_current_user: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}"
@@ -345,76 +377,133 @@ def receive_chat(chat_input: ChatInput):
         }
 
 @app.post("/api/articles/search")
-async def search_articles_endpoint(search_input: ArticleSearchInput, current_user: User = Depends(get_current_user_or_none)):
+async def search_articles_endpoint(search_input: ArticleSearchInput, current_user: User = Depends(get_current_user_or_none), request: Request = None):
     try:
         print(f"Searching for articles about: {search_input.topic}")
         
+        # Debug auth headers
+        if request:
+            auth_header = request.headers.get('authorization')
+            print(f"Auth header present: {auth_header is not None}")
+            if auth_header:
+                token_type, token = auth_header.split()
+                print(f"Token type: {token_type}, Token (first 10 chars): {token[:10]}...")
+        
+        print(f"Current user: {current_user}")
+        
         # Extract keywords from the topic
-        keywords = extract_keywords(search_input.topic)
-        print(f"Generated keywords: {keywords}")
+        try:
+            keywords = extract_keywords(search_input.topic)
+            print(f"Generated keywords: {keywords}")
+        except Exception as e:
+            import traceback
+            print(f"Error extracting keywords: {e}")
+            print(traceback.format_exc())
+            keywords = [search_input.topic]  # Use the original query as fallback
         
         # Record search history if user is authenticated
         if current_user:
             try:
+                # Use the user_id property which always returns a valid integer
+                user_id = current_user.user_id
+                print(f"Recording search history for user: {user_id}")
+                
                 search_data = {
-                    "user_id": current_user.id,
+                    "user_id": user_id,
                     "query": search_input.topic,
                     "timestamp": datetime.datetime.utcnow().isoformat()
                 }
                 
+                print(f"Search data to be inserted: {search_data}")
+                
                 if supabase:
-                    result = supabase.table("search_history").insert(search_data).execute()
-                    print(f"Search history recorded for user {current_user.id}: {search_input.topic}")
+                    print(f"Inserting into search_history table: {search_data}")
+                    try:
+                        # First check if the table exists
+                        try:
+                            supabase.table("search_history").select("id").limit(1).execute()
+                            print("Confirmed search_history table exists")
+                        except Exception as table_e:
+                            print(f"Error checking search_history table: {table_e}")
+                            print("The search_history table might not exist. Search history will not be recorded.")
+                            print("Please run create_search_history_table.py to create the table.")
+                            # Continue with the search even if we can't record history
+                            raise Exception("search_history table does not exist")
+                        
+                        # If we got here, the table exists, so try to insert
+                        result = supabase.table("search_history").insert(search_data).execute()
+                        print(f"Search history recorded for user {user_id}: {search_input.topic}")
+                        print(f"Supabase response: {result}")
+                    except Exception as e:
+                        import traceback
+                        print(f"Error inserting into search_history: {e}")
+                        print(traceback.format_exc())
+                else:
+                    print("Supabase client not available, search history not recorded")
             except Exception as e:
+                import traceback
                 print(f"Error recording search history: {e}")
+                print(traceback.format_exc())
                 # Continue with search even if recording history fails
+        else:
+            print("User not authenticated, search history not recorded")
         
         # Search for articles
-        articles_data = search_articles(keywords)
+        try:
+            articles_data = search_articles(keywords)
+            print(f"Found {len(articles_data)} articles")
+        except Exception as e:
+            import traceback
+            print(f"Error searching for articles: {e}")
+            print(traceback.format_exc())
+            articles_data = []  # Empty list as fallback
         
         # Transform data to match frontend's expected format
         formatted_articles = []
-        for idx, article in enumerate(articles_data):
-            # Create excerpt from content
-            excerpt = article.get('article_content', '')[:200] + '...' if article.get('article_content') else 'No content available'
-            
-            # Determine the perspective
-            perspective = classify_perspective(article.get('source', ''), article.get('article_content', ''))
-            
-            formatted_articles.append({
-                "id": article.get('id', idx + 1),
-                "source": article.get('source', 'Unknown Source'),
-                "title": article.get('title', 'Untitled Article'),
-                "excerpt": excerpt,
-                "perspective": perspective,
-                "date": "Recent", # No date in DB schema
-                "url": article.get('source_link', f"https://example.com/article/{article.get('id', idx + 1)}")
-            })
+        try:
+            for idx, article in enumerate(articles_data):
+                # Create excerpt from content
+                try:
+                    excerpt = article.get('article_content', '')[:200] + '...' if article.get('article_content') else 'No content available'
+                except Exception as excerpt_e:
+                    print(f"Error creating excerpt: {excerpt_e}")
+                    excerpt = "Excerpt unavailable"
+                
+                # Determine the perspective
+                try:
+                    perspective = classify_perspective(article.get('source', ''), article.get('article_content', ''))
+                except Exception as perspective_e:
+                    print(f"Error classifying perspective: {perspective_e}")
+                    perspective = "neutral"
+                
+                formatted_article = {
+                    "id": article.get('id', idx + 1),
+                    "source": article.get('source', 'Unknown Source'),
+                    "title": article.get('title', 'Untitled Article'),
+                    "excerpt": excerpt,
+                    "perspective": perspective,
+                    "date": "Recent", # No date in DB schema
+                    "url": article.get('source_link', '#')
+                }
+                formatted_articles.append(formatted_article)
+        except Exception as format_e:
+            import traceback
+            print(f"Error formatting articles: {format_e}")
+            print(traceback.format_exc())
         
-        # Create merged article data
-        sources_considered = list(set([article.get('source', 'Unknown') for article in articles_data]))
-        
-        response = {
-            "articles": formatted_articles,
-            "mergedArticle": {
-                "title": f"{search_input.topic}: A Comprehensive Analysis",
-                "summary": f"This is an AI-generated summary about {search_input.topic} based on {len(formatted_articles)} articles from various sources. The analysis reveals different perspectives on this topic...",
-                "sourcesConsidered": sources_considered
-            }
+        return {
+            "status": "success",
+            "message": f"Found {len(formatted_articles)} articles",
+            "results": formatted_articles
         }
-        
-        return response
     except Exception as e:
-        print(f"Error in search_articles_endpoint: {str(e)}")
+        import traceback
+        print(f"Unhandled error in search_articles_endpoint: {e}")
+        print(traceback.format_exc())
         return {
             "status": "error",
-            "message": "An error occurred while searching for articles",
-            "articles": [],
-            "mergedArticle": {
-                "title": "Error",
-                "summary": "An error occurred while generating the summary.",
-                "sourcesConsidered": []
-            }
+            "message": "An unexpected error occurred",
+            "results": []
         }
 
 @app.get("/api/welcome-text")
@@ -569,8 +658,11 @@ async def record_search(query: str, current_user: User = Depends(get_current_use
             # Mock response
             return {"status": "success"}
             
+        # Use the user_id property which always returns a valid integer
+        user_id = current_user.user_id
+        
         search_data = {
-            "user_id": current_user.id,
+            "user_id": user_id,
             "query": query,
             "timestamp": datetime.datetime.utcnow().isoformat()
         }
@@ -595,14 +687,22 @@ async def record_search(query: str, current_user: User = Depends(get_current_use
 @app.get("/search-history/")
 async def get_search_history(current_user: User = Depends(get_current_user)):
     try:
+        # Use the user_id property which always returns a valid integer
+        user_id = current_user.user_id
+        print(f"Fetching search history for user: {user_id}")
+        
         if not supabase:
+            print("Supabase client not available, returning mock data")
             # Return mock data
             return [
-                {"id": 1, "user_id": current_user.id, "query": "Sample search 1", "timestamp": datetime.datetime.utcnow().isoformat()},
-                {"id": 2, "user_id": current_user.id, "query": "Sample search 2", "timestamp": datetime.datetime.utcnow().isoformat()}
+                {"id": 1, "user_id": user_id, "query": "Sample search 1", "timestamp": datetime.datetime.utcnow().isoformat()},
+                {"id": 2, "user_id": user_id, "query": "Sample search 2", "timestamp": datetime.datetime.utcnow().isoformat()}
             ]
             
-        result = supabase.table("search_history").select("*").eq("user_id", current_user.id).order("timestamp", desc=True).execute()
+        print(f"Querying search_history table for user_id: {user_id}")
+        result = supabase.table("search_history").select("*").eq("user_id", user_id).order("timestamp", desc=True).execute()
+        print(f"Retrieved {len(result.data)} search history records")
+        
         return result.data
     except Exception as e:
         print(f"Error getting search history: {e}")

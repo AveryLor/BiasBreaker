@@ -57,14 +57,19 @@ export default function Navbar() {
     if (typeof window === 'undefined') return;
     
     const storedUser = localStorage.getItem('user');
-    if (storedUser) {
+    const token = localStorage.getItem('token');
+    
+    if (storedUser && token) {
       try {
+        // Store token in cookie for middleware access
+        document.cookie = `manual_auth_token=${token}; path=/; max-age=86400; SameSite=Lax`;
         setManualUser(JSON.parse(storedUser));
       } catch (err) {
         console.error('Error parsing stored user data:', err);
         // If error parsing, clear the invalid data
         localStorage.removeItem('user');
         localStorage.removeItem('token');
+        document.cookie = 'manual_auth_token=; path=/; max-age=0';
         setManualUser(null);
       }
     } else {
@@ -93,14 +98,30 @@ export default function Navbar() {
   }, []);
 
   // Determine if user is authenticated - either via NextAuth or manual auth
-  const isAuthenticated = status === 'authenticated' || manualUser !== null;
+  // Fix to ensure buttons always show during loading or when not authenticated
+  const isAuthenticated = status === 'authenticated' || (manualUser !== null && !!localStorage.getItem('token'));
+  const isLoading = status === 'loading' && !manualUser;
   const userData = manualUser || session?.user;
+
+  // Debug auth state
+  useEffect(() => {
+    console.log('Auth Status:', {
+      nextAuthStatus: status,
+      hasManualUser: !!manualUser,
+      isAuthenticated,
+      hasToken: !!localStorage.getItem('token')
+    });
+  }, [status, manualUser, isAuthenticated]);
 
   // Handle manual sign out
   const handleSignOut = () => {
     // Clear localStorage auth
     localStorage.removeItem('user');
     localStorage.removeItem('token');
+    
+    // Clear auth cookie
+    document.cookie = 'manual_auth_token=; path=/; max-age=0';
+    
     setManualUser(null);
     
     // Emit auth state change event
@@ -164,7 +185,7 @@ export default function Navbar() {
               
               <div className="flex items-center">
                 {/* Authentication buttons */}
-                {status === 'loading' ? (
+                {isLoading ? (
                   <div className="h-8 w-8 rounded-full bg-gray-800 animate-pulse"></div>
                 ) : !isAuthenticated ? (
                   <div className="flex space-x-4">

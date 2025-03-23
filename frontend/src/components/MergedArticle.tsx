@@ -6,6 +6,15 @@ interface MergedArticleProps {
 }
 
 const MergedArticle: React.FC<MergedArticleProps> = ({ mergedArticle }) => {
+  // Make sure summary is a string to prevent split errors
+  const summary = typeof mergedArticle?.summary === 'string' ? mergedArticle.summary : 'No summary available';
+  
+  // Make sure title is a string
+  const title = typeof mergedArticle?.title === 'string' ? mergedArticle.title : 'No title available';
+  
+  // Make sure sourcesConsidered is an array
+  const sources = Array.isArray(mergedArticle?.sourcesConsidered) ? mergedArticle.sourcesConsidered : [];
+  
   return (
     <div className="bg-black/40 backdrop-blur-sm rounded-lg shadow-[0_0_15px_rgba(0,255,255,0.15)] p-6 mb-8 border border-cyan-900/50">
       <div className="flex items-center mb-4">
@@ -17,23 +26,25 @@ const MergedArticle: React.FC<MergedArticleProps> = ({ mergedArticle }) => {
         <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-fuchsia-500 bg-clip-text text-transparent">AI-Generated Summary</h2>
       </div>
       
-      <h3 className="text-xl font-semibold mb-3 text-gray-100">{mergedArticle.title}</h3>
+      <h3 className="text-xl font-semibold mb-3 text-gray-100">{title}</h3>
       <div className="prose max-w-none mb-6">
-        {mergedArticle.summary.split('\n\n').map((paragraph, idx) => (
+        {summary.split('\n\n').map((paragraph, idx) => (
           <p key={idx} className="mb-4 text-gray-300">{paragraph}</p>
         ))}
       </div>
       
-      <div className="mt-4">
-        <h4 className="text-sm font-semibold text-cyan-400 mb-2">Sources Considered:</h4>
-        <div className="flex flex-wrap gap-2">
-          {mergedArticle.sourcesConsidered.map((source, idx) => (
-            <span key={idx} className="bg-gray-800/60 text-gray-300 px-2 py-1 rounded-md text-xs border border-cyan-900/50">
-              {source}
-            </span>
-          ))}
+      {sources.length > 0 && (
+        <div className="mt-4">
+          <h4 className="text-sm font-semibold text-cyan-400 mb-2">Sources Considered:</h4>
+          <div className="flex flex-wrap gap-2">
+            {sources.map((source, idx) => (
+              <span key={idx} className="bg-gray-800/60 text-gray-300 px-2 py-1 rounded-md text-xs border border-cyan-900/50">
+                {source}
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

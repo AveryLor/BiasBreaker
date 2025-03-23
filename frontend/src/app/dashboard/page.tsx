@@ -17,62 +17,133 @@ export default function DashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [userData, setUserData] = useState<UserData | null>(null);
-  const [searchHistory, setSearchHistory] = useState([]);
+  const [searchHistory, setSearchHistory] = useState<any[]>([]);
+
+  // Function to handle selecting a previous search
+  const handleSearchSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const query = e.target.value;
+    if (query) {
+      router.push(`/search?q=${encodeURIComponent(query)}`);
+    }
+  };
 
   useEffect(() => {
     // Check for manually authenticated user first
     const storedUser = localStorage.getItem('user');
     const token = localStorage.getItem('token');
     
-    if (storedUser && token) {
-      try {
-        const user = JSON.parse(storedUser);
-        setUserData(user);
-        setLoading(false);
-        return; // Exit early since we have a manually authenticated user
-      } catch (err) {
-        console.error('Error parsing stored user data:', err);
-        // Continue to check NextAuth session
+    const checkAuth = async () => {
+      console.log('Dashboard auth check - NextAuth status:', status);
+      console.log('Dashboard auth check - Manual auth:', !!storedUser && !!token);
+      
+      if (storedUser && token) {
+        try {
+          const user = JSON.parse(storedUser);
+          setUserData(user);
+          setLoading(false);
+          
+          // Ensure cookie is set for middleware
+          document.cookie = `manual_auth_token=${token}; path=/; max-age=86400; SameSite=Lax`;
+          
+          // Begin loading search history
+          fetchSearchHistory(token);
+          return; // Exit early since we have a manually authenticated user
+        } catch (err) {
+          console.error('Error parsing stored user data:', err);
+          // Clear invalid data
+          localStorage.removeItem('user');
+          localStorage.removeItem('token');
+          document.cookie = 'manual_auth_token=; path=/; max-age=0';
+          // Continue to check NextAuth session
+        }
       }
-    }
+      
+      // Check NextAuth session
+      if (status === 'loading') {
+        // Will check again on next status change
+        return;
+      }
+      
+      if (status === 'unauthenticated') {
+        console.log('Not authenticated, redirecting to login');
+        
+        // Only redirect if we don't have a manual token - prevents flashing redirects
+        if (!token) {
+          router.push('/auth/signin'); // Redirect to login if not authenticated
+        }
+      } else if (status === 'authenticated' && session?.user) {
+        console.log('Authenticated via NextAuth');
+        setUserData(session.user);
+        setLoading(false);
+        
+        // Begin loading search history with NextAuth token
+        if (session.accessToken) {
+          fetchSearchHistory(session.accessToken);
+        }
+      }
+    };
     
-    // Check NextAuth session
-    if (status === 'loading') {
-      return; // Wait for the session to load
-    }
+    checkAuth();
     
-    if (status === 'unauthenticated') {
-      router.push('/auth/signin'); // Redirect to login if not authenticated
-    } else if (session?.user) {
-      setUserData(session.user);
-      setLoading(false);
-    }
+    // Set a timeout to handle potential infinite loading issues
+    // Increased timeout to avoid premature redirects
+    const timeoutId = setTimeout(() => {
+      if (loading) {
+        console.log('Auth check timeout - forcing content display');
+        setLoading(false);
+        
+        // Don't force redirect, just stop the loading state
+        // Only redirect if we have no authentication at all
+        const hasAnyAuth = !!(localStorage.getItem('token') || status === 'authenticated');
+        if (!hasAnyAuth) {
+          router.push('/auth/signin');
+        }
+      }
+    }, 8000); // Increased to 8 seconds
+    
+    return () => clearTimeout(timeoutId);
   }, [status, session, router]);
 
   // Fetch user's search history when session is available
-  useEffect(() => {
-    if (session?.accessToken) {
-      // Function to fetch search history
-      const fetchSearchHistory = async () => {
-        try {
-          const response = await fetch('http://localhost:8000/search-history/', {
-            headers: {
-              Authorization: `Bearer ${session.accessToken}`,
-            },
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            setSearchHistory(data);
-          }
-        } catch (error) {
-          console.error('Error fetching search history:', error);
-        }
-      };
+  // Function to fetch search history
+  const fetchSearchHistory = async (token: string) => {
+    try {
+      console.log('Fetching search history with token:', token.substring(0, 10) + '...');
       
-      fetchSearchHistory();
+      try {
+        const response = await fetch('http://localhost:8000/search-history/', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        
+        if (response.ok) {
+          // Check if response is empty
+          const text = await response.text();
+          if (!text || text.trim() === '') {
+            console.log('Empty response from server');
+            setSearchHistory([]);
+            return;
+          }
+          
+          // Parse JSON if not empty
+          const data = JSON.parse(text);
+          console.log('Received search history:', data);
+          setSearchHistory(Array.isArray(data) ? data : []);
+        } else {
+          console.error('Error response from server:', response.status, response.statusText);
+          // Set empty array to prevent undefined errors
+          setSearchHistory([]);
+        }
+      } catch (fetchError) {
+        console.error('Network error fetching search history:', fetchError);
+        setSearchHistory([]);
+      }
+    } catch (error) {
+      console.error('Error in fetch search history:', error);
+      setSearchHistory([]);
     }
-  }, [session]);
+  };
 
   // Function to handle logout
   const handleLogout = () => {
@@ -95,16 +166,8 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-purple-950 text-white p-8">
       <div className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-fuchsia-500 text-transparent bg-clip-text">
-            Dashboard
-          </h1>
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 rounded-md bg-red-600/80 hover:bg-red-500 transition-colors text-white text-sm"
-          >
-            Sign Out
-          </button>
+        <div className="flex justify-between items-center mb-6 mt-12">
+
         </div>
         
         <div className="bg-black/60 backdrop-blur-md rounded-xl border border-cyan-900/50 p-6 shadow-[0_0_15px_rgba(0,255,255,0.15)] mb-8">
@@ -113,22 +176,34 @@ export default function DashboardPage() {
         </div>
         
         {/* Mock Content Blocks */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid gap-6 ">
           <div className="bg-black/60 backdrop-blur-md rounded-xl border border-cyan-900/50 p-6 shadow-[0_0_15px_rgba(0,255,255,0.15)]">
             <h3 className="text-lg font-medium mb-3 text-fuchsia-300">Search History</h3>
-            <p className="text-gray-400 mb-4">Your recent search history will appear here.</p>
+            <p className="text-gray-400 mb-4">Your recent search history.</p>
             <div className="space-y-2">
-              <div className="bg-gray-800/50 p-2 rounded">No recent searches</div>
+              {searchHistory && searchHistory.length > 0 ? (
+                <div className="bg-gray-800/50 p-2 rounded">
+                  <select 
+                    className="w-full bg-gray-800 p-2 rounded text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-cyan-500" 
+                    onChange={handleSearchSelect}
+                    defaultValue=""
+                  >
+                    <option value="" disabled>Recent searches</option>
+                    {searchHistory.map((search: any) => (
+                      <option key={search.id} value={search.query}>
+                        {search.query}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-2 ">Select a search to view results</p>
+                </div>
+              ) : (
+                <div className="bg-gray-800/50 p-2 rounded">No recent searches</div>
+              )}
             </div>
           </div>
           
-          <div className="bg-black/60 backdrop-blur-md rounded-xl border border-cyan-900/50 p-6 shadow-[0_0_15px_rgba(0,255,255,0.15)]">
-            <h3 className="text-lg font-medium mb-3 text-fuchsia-300">Reading Preferences</h3>
-            <p className="text-gray-400 mb-4">Sources and topics that interest you.</p>
-            <div className="space-y-2">
-              <div className="bg-gray-800/50 p-2 rounded">No preferences set</div>
-            </div>
-          </div>
+          
         </div>
       </div>
     </div>

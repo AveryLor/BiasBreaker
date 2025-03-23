@@ -4,17 +4,30 @@ import MergedArticle from './MergedArticle';
 import ChatbotInput from './ChatbotInput';
 import { dummyNewsData } from '../data/dummyData';
 import { Article, MergedArticle as MergedArticleType, NewsData } from '../data/dummyData';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 
 interface NewsFeedProps {
   initialTopic?: string | null;
 }
 
+// Default empty state to prevent filter errors
+const emptyNewsData: NewsData = {
+  articles: [],
+  mergedArticle: {
+    title: 'No Articles Available',
+    summary: 'No articles have been fetched yet. Please search for a topic to see results.',
+    sourcesConsidered: []
+  }
+};
+
 const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
+  const { data: session } = useSession();
   const [selectedPerspective, setSelectedPerspective] = useState<string | null>(null);
   const [searchTopic, setSearchTopic] = useState<string | null>(null);
   const [showArticles, setShowArticles] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [articleData, setArticleData] = useState<NewsData>(dummyNewsData);
+  const [articleData, setArticleData] = useState<NewsData>(emptyNewsData);
   const [error, setError] = useState<string | null>(null);
   
   // Use the initialTopic when provided
@@ -32,11 +45,35 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
       setIsLoading(true);
       setError(null);
       
+      // Get authentication token from localStorage or session
+      const tokenFromStorage = localStorage.getItem('token');
+      // Get token from session with proper fallback
+      const tokenFromSession = session?.accessToken || '';
+      const authToken = tokenFromStorage || tokenFromSession;
+      
+      console.log('Authentication state:');
+      console.log('- Token from localStorage:', tokenFromStorage ? `${tokenFromStorage.substring(0, 10)}...` : 'null');
+      console.log('- Token from session:', tokenFromSession ? `${tokenFromSession.substring(0, 10)}...` : 'null');
+      console.log('- User authenticated:', !!authToken);
+      console.log('- Session object:', session ? 'exists' : 'null');
+      
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      
+      // Add Authorization header if token is available
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+        console.log('- Added Authorization header to request');
+      } else {
+        console.log('- No Authorization header added (user not authenticated)');
+      }
+      
+      console.log('Making search request for topic:', topic);
+      
       const response = await fetch('http://localhost:8000/api/articles/search', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({ topic }),
       });
       
@@ -44,14 +81,36 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
         throw new Error('Failed to fetch articles');
       }
       
-      const data = await response.json();
+      const responseText = await response.text();
       
-      if (data.status === 'error') {
-        setError(data.message || 'Failed to fetch articles');
-        return;
+      // Check if response is empty or invalid JSON
+      if (!responseText || responseText.trim() === '') {
+        throw new Error('Empty response received');
       }
       
-      setArticleData(data);
+      try {
+        const data = JSON.parse(responseText);
+        
+        if (data.status === 'error') {
+          setError(data.message || 'Failed to fetch articles');
+          return;
+        }
+        
+        // Validate if data has the expected structure
+        const validData: NewsData = {
+          articles: Array.isArray(data.results) ? data.results : [],
+          mergedArticle: {
+            title: data.status === 'success' ? `${topic}: Search Results` : 'No Results',
+            summary: `Found ${Array.isArray(data.results) ? data.results.length : 0} articles about "${topic}"`,
+            sourcesConsidered: []
+          }
+        };
+        
+        setArticleData(validData);
+      } catch (jsonError) {
+        console.error('JSON parsing error:', jsonError, 'Response was:', responseText);
+        throw new Error('Invalid response format');
+      }
     } catch (err) {
       console.error('Error fetching articles:', err);
       setError('Failed to fetch articles. Using sample data instead.');
@@ -63,14 +122,14 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
   };
   
   // Filter articles based on both perspective and search topic
-  const filteredArticles = articleData.articles.filter(article => {
+  const filteredArticles = articleData?.articles ? articleData.articles.filter(article => {
     // Filter by perspective if selected
     const perspectiveMatch = selectedPerspective 
       ? article.perspective === selectedPerspective
       : true;
     
     return perspectiveMatch;
-  });
+  }) : [];
   
   const perspectives = ['All', 'Liberal', 'Conservative', 'Centrist', 'Progressive', 'Libertarian'];
   
@@ -79,6 +138,23 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
     setSearchTopic(topic);
     setShowArticles(true);
     fetchArticlesByTopic(topic);
+    
+    // Check if user is authenticated
+    const tokenFromStorage = localStorage.getItem('token');
+    const tokenFromSession = session?.accessToken || '';
+    const isAuthenticated = tokenFromStorage || tokenFromSession;
+    
+    // If not authenticated, show an alert about search history
+    if (!isAuthenticated) {
+      console.log('User not authenticated - searches will not be saved to history');
+      
+      // Show a notification to the user
+      const shouldSignIn = window.confirm('Sign in to save your search history. Would you like to sign in now?');
+      if (shouldSignIn) {
+        // Navigate to sign-in page
+        window.location.href = '/auth/signin';
+      }
+    }
   };
   
   return (

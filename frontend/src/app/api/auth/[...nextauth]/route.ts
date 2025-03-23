@@ -1,24 +1,25 @@
 import NextAuth from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
+import { NextAuthConfig } from "next-auth";
 
 // Configuration for the API backend
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// @ts-ignore: Ignore type errors for now to get functionality working
-const authOptions = {
+export const authConfig = {
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || "dummy-client-id",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || "dummy-client-secret",
     }),
     CredentialsProvider({
+      id: "credentials",
       name: "Credentials",
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
 
         try {
@@ -39,8 +40,6 @@ const authOptions = {
 
           if (!response.ok) {
             console.error('Auth failed with status:', response.status);
-            const errorData = await response.json();
-            console.error('Auth error details:', errorData);
             return null;
           }
 
@@ -56,8 +55,6 @@ const authOptions = {
 
           if (!userResponse.ok) {
             console.error('User fetch failed with status:', userResponse.status);
-            const userErrorData = await userResponse.json().catch(() => ({}));
-            console.error('User fetch error details:', userErrorData);
             return null;
           }
 
@@ -66,7 +63,7 @@ const authOptions = {
 
           // Return the user object for NextAuth session
           return {
-            id: String(userData.id),
+            id: String(userData.id || "0"),
             name: userData.name || userData.email,
             email: userData.email,
             accessToken: tokenData.access_token,
@@ -79,19 +76,20 @@ const authOptions = {
     }),
   ],
   callbacks: {
-    // @ts-ignore: Ignore type errors for now
     async jwt({ token, user }) {
+      // Initial sign in
       if (user) {
+        // Add any user properties you want to store in the JWT
         token.accessToken = user.accessToken;
         token.userId = user.id;
       }
       return token;
     },
-    // @ts-ignore: Ignore type errors for now
     async session({ session, token }) {
-      session.accessToken = token.accessToken;
-      if (session.user) {
-        session.user.id = token.userId;
+      // Add properties to the session from the token
+      if (token && session.user) {
+        session.user.id = token.userId as string || "";
+        session.accessToken = token.accessToken as string;
       }
       return session;
     },
@@ -100,14 +98,10 @@ const authOptions = {
     signIn: '/auth/signin',
     signOut: '/auth/signin',
     error: '/auth/signin?error=auth',
-    verifyRequest: '/auth/verify-request',
-    newUser: '/dashboard'
   },
-  session: {
-    strategy: 'jwt' as const,
-  },
-};
+  session: { strategy: "jwt" },
+  debug: process.env.NODE_ENV === 'development',
+} satisfies NextAuthConfig;
 
-const handler = NextAuth(authOptions);
-
-export { handler as GET, handler as POST }; 
+// Export the NextAuth handler
+export const { handlers: { GET, POST }, auth, signIn, signOut } = NextAuth(authConfig); 

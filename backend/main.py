@@ -161,7 +161,7 @@ def search_articles(keywords_with_source):
                 print(f"\nReached {max_articles_to_collect} articles. Stopping search.")
                 break
                 
-            response = supabase.table("news") \
+            response = supabase.table("articleInformationDB") \
                 .select("id, article_titles, news_information, source_link") \
                 .ilike("article_titles", f"%{keyword}%") \
                 .execute()
@@ -211,7 +211,7 @@ def search_articles(keywords_with_source):
                     print(f"\nReached {max_articles_to_collect} articles. Stopping search.")
                     break
                     
-                response = supabase.table("news") \
+                response = supabase.table("articleInformationDB") \
                     .select("id, article_titles, news_information, source_link") \
                     .ilike("article_titles", f"%{keyword}%") \
                     .execute()

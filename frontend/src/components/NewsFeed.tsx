@@ -24,7 +24,14 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
   // Use the initialTopic when provided
   useEffect(() => {
     if (initialTopic) {
-      handleTopicSubmit(initialTopic);
+      // Check if we're in the URL context with a query parameter
+      const urlParams = new URLSearchParams(window.location.search);
+      const isFromQueryParam = urlParams.has('query');
+      
+      if (!isFromQueryParam) {
+        // Only auto-submit if not coming from the query parameter (reopenQuery)
+        handleTopicSubmit(initialTopic);
+      }
     }
   }, [initialTopic]);
   
@@ -48,8 +55,10 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
     setError(null);
     
     try {
+      console.log("Sending chat message to API:", topic);
       // Call the backend API
       const response = await sendChatMessage(topic);
+      console.log("API response received:", response.status);
       
       if (response.status === 'success') {
         // Convert backend articles to frontend format
@@ -75,8 +84,8 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
         console.error("API returned error:", response.message);
       }
     } catch (err) {
-      setError("An error occurred while fetching the results");
       console.error("API call failed:", err);
+      setError("An error occurred while fetching the results");
       
       // Fallback to dummy data in case of error
       setArticles(dummyNewsData.articles);

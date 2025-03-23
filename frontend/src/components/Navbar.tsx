@@ -42,7 +42,7 @@ export default function Navbar() {
                 <div className="flex flex-shrink-0 items-center">
                   <Link href="/">
                     <span className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-fuchsia-500 text-transparent bg-clip-text">
-                      GenesisAI
+                      BiasBreaker
                     </span>
                   </Link>
                 </div>

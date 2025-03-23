@@ -71,20 +71,25 @@ class PasswordUpdateRequest(BaseModel):
 
 async def get_current_user(access_token: Optional[str] = Cookie(None)):
     if not access_token:
+        print("Authentication failed: No access_token cookie provided")
         return None
     
     try:
         payload = pyjwt.decode(access_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id = payload.get("sub")
         if user_id is None:
+            print("Authentication failed: JWT payload missing 'sub' field")
             return None
         
         user = auth_manager.get_user_by_id(int(user_id))
         if not user:
+            print(f"Authentication failed: No user found with ID {user_id}")
             return None
         
+        print(f"User authenticated successfully: {user['name']} (ID: {user['id']})")
         return user
-    except:
+    except Exception as e:
+        print(f"Authentication error: {str(e)}")
         return None
 
 def extract_keywords(message):
@@ -413,7 +418,14 @@ def receive_chat(chat_input: ChatInput, user = Depends(get_current_user)):
         
         # Save query to user history if user is authenticated
         if user:
-            auth_manager.save_user_query(user["id"], chat_input.message)
+            print(f"User authenticated: ID {user['id']}, saving query to search history")
+            save_result = auth_manager.save_user_query(user["id"], chat_input.message)
+            if save_result["success"]:
+                print(f"Successfully saved query to search history. Query ID: {save_result.get('query_id')}")
+            else:
+                print(f"Failed to save query to search history: {save_result.get('message', 'Unknown error')}")
+        else:
+            print("User not authenticated, skipping query save to search history")
         
         # Extract keywords from the query
         keywords_with_source = extract_keywords(chat_input.message)
@@ -609,6 +621,8 @@ async def register(user_data: UserCreate, response: Response):
     # Create JWT token
     user_id = result["user"]["id"]
     access_token = create_access_token(user_id)
+    print(f"User registered successfully: {result['user']['name']} (ID: {user_id})")
+    print(f"Setting access_token cookie for user {user_id}")
     
     # Set cookie
     response.set_cookie(
@@ -632,6 +646,8 @@ async def login(credentials: UserLogin, response: Response):
     # Create JWT token
     user_id = result["user"]["id"]
     access_token = create_access_token(user_id)
+    print(f"User logged in successfully: {result['user']['name']} (ID: {user_id})")
+    print(f"Setting access_token cookie for user {user_id}")
     
     # Set cookie
     response.set_cookie(
@@ -713,6 +729,7 @@ def create_access_token(user_id: int):
     }
     
     access_token = pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    print(f"Created JWT token for user {user_id}, expires: {expires}")
     return access_token
 
 if __name__ == "__main__":

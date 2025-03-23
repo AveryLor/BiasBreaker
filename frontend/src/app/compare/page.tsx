@@ -35,14 +35,17 @@ const sampleArticles = [
 export default function ComparePage() {
   const searchParams = useSearchParams();
   const topicParam = searchParams.get('topic');
+  const queryParam = searchParams.get('query');
   const [initialTopic, setInitialTopic] = useState<string | null>(null);
 
   useEffect(() => {
-    // Set the initial topic from URL parameter
-    if (topicParam) {
+    // Set the initial topic from URL parameter, prioritize 'query' over 'topic'
+    if (queryParam) {
+      setInitialTopic(queryParam);
+    } else if (topicParam) {
       setInitialTopic(topicParam);
     }
-  }, [topicParam]);
+  }, [topicParam, queryParam]);
 
   return (
     <div className="flex flex-col min-h-screen bg-gradient-to-b from-black via-gray-900 to-purple-950 homepage-container overflow-x-hidden w-full max-w-full">

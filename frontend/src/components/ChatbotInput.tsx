@@ -13,10 +13,18 @@ const ChatbotInput: React.FC<ChatbotInputProps> = ({ onTopicSubmit, initialValue
 
   // Handle the initialValue if provided
   useEffect(() => {
-    if (initialValue && !sentMessage) {
-      setSentMessage(initialValue);
-      // We don't need to call onTopicSubmit here because the parent component 
-      // already knows about this topic (it provided it)
+    if (initialValue) {
+      // Check if we're in the URL context (e.g., from reopenQuery)
+      const urlParams = new URLSearchParams(window.location.search);
+      const isFromQueryParam = urlParams.has('query');
+      
+      if (isFromQueryParam) {
+        // Just set the input value without sending
+        setInputValue(initialValue);
+      } else if (!sentMessage) {
+        // For non-query parameters, follow the original behavior
+        setSentMessage(initialValue);
+      }
     }
   }, [initialValue, sentMessage]);
 

@@ -61,8 +61,8 @@ def initialize_database():
         })
         
         # Create user_queries table
-        logger.info("Creating 'user_queries' table...")
-        supabase.table("user_queries").create({
+        logger.info("Creating 'search_history' table...")
+        supabase.table("search_history").create({
             "id": {
                 "type": "int8",
                 "primaryKey": True,

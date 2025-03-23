@@ -29,7 +29,7 @@ export default function TrendingTopics({ topics = [] }: TrendingTopicsProps) {
     <div className="mt-8">
       <div className="flex items-center mb-4">
         <FireIcon className="h-5 w-5 text-red-500 mr-2" />
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Trending Topics</h2>
+        <h2 className="text-xl font-semibold text-white dark:text-white">Trending Topics</h2>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -55,4 +55,4 @@ export default function TrendingTopics({ topics = [] }: TrendingTopicsProps) {
       </div>
     </div>
   );
-} 
+}

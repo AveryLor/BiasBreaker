@@ -178,16 +178,23 @@ export const authApi = {
      */
     getQueryHistory: async (): Promise<{ success: boolean, queries?: QueryHistoryItem[], message?: string }> => {
         try {
+            console.log("Requesting user query history from API...");
             const response = await fetch(`${API_URL}/api/user/queries`, {
+                method: 'GET',
                 credentials: 'include',
+                headers: {
+                    'Accept': 'application/json',
+                }
             });
 
-            const data = await response.json();
-
             if (!response.ok) {
-                return { success: false, message: data.detail || 'Failed to fetch query history' };
+                const errorData = await response.json();
+                console.error("Failed to fetch query history:", errorData);
+                return { success: false, message: errorData.detail || 'Failed to fetch query history' };
             }
 
+            const data = await response.json();
+            console.log(`Received ${data.queries?.length || 0} query history entries`);
             return { success: true, queries: data.queries };
         } catch (error) {
             console.error('Query history error:', error);

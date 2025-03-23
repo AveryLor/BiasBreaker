@@ -27,7 +27,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
+    <main className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-purple-950 py-8">
       <UserDashboard />
     </main>
   );

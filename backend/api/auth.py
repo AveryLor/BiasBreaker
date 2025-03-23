@@ -160,7 +160,7 @@ class Auth:
             
             if response.data:
                 # Also delete all user queries
-                self.supabase.table("user_queries").delete().eq("user_id", user_id).execute()
+                self.supabase.table("search_history").delete().eq("user_id", user_id).execute()
                 return {"success": True, "message": "Account deleted successfully"}
             else:
                 return {"success": False, "message": "Failed to delete account"}
@@ -172,27 +172,50 @@ class Auth:
     def save_user_query(self, user_id: int, query: str) -> Dict[str, Any]:
         """Save a user's search query to history"""
         try:
+            # Don't save empty queries
+            if not query or query.strip() == "":
+                logger.warning(f"Empty query not saved for user {user_id}")
+                return {"success": False, "message": "Empty query not saved"}
+            
+            logger.info(f"Attempting to save query for user {user_id}: '{query}'")
+            
+            # Check for duplicates to avoid saving the same query multiple times
+            existing_query = self.supabase.table("search_history").select("*").eq("user_id", user_id).eq("query", query).execute()
+            
+            if existing_query.data and len(existing_query.data) > 0:
+                # Query already exists, no need to save again
+                logger.info(f"Query already exists for user {user_id}, not saving duplicate")
+                return {"success": True, "query_id": existing_query.data[0]["id"], "message": "Query already exists"}
+            
+            # Prepare the new query record
             new_query = {
                 "user_id": user_id,
                 "query": query,
                 "timestamp": datetime.utcnow().isoformat()
             }
             
-            response = self.supabase.table("user_queries").insert(new_query).execute()
+            # Insert into database
+            logger.info(f"Inserting new query into search_history table: {new_query}")
+            response = self.supabase.table("search_history").insert(new_query).execute()
             
             if response.data:
+                logger.info(f"Successfully saved query, ID: {response.data[0]['id']}")
                 return {"success": True, "query_id": response.data[0]["id"]}
             else:
-                return {"success": False, "message": "Failed to save query"}
+                logger.error(f"Failed to save query, no data returned from insert operation")
+                return {"success": False, "message": "Failed to save query, no data returned"}
                 
         except Exception as e:
-            logger.error(f"Error saving query: {str(e)}")
+            logger.error(f"Error saving query for user {user_id}: {str(e)}")
+            # Log more details about the exception for debugging
+            import traceback
+            logger.error(traceback.format_exc())
             return {"success": False, "message": f"Query save error: {str(e)}"}
     
     def get_user_queries(self, user_id: int, limit: int = 20) -> Dict[str, Any]:
         """Get a user's search history"""
         try:
-            response = self.supabase.table("user_queries").select("*").eq("user_id", user_id).order("timestamp", desc=True).limit(limit).execute()
+            response = self.supabase.table("search_history").select("*").eq("user_id", user_id).order("timestamp", desc=True).limit(limit).execute()
             
             if response.data:
                 return {"success": True, "queries": response.data}

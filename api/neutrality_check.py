@@ -8,8 +8,8 @@ import os
 from api.database import Database
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+# logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -80,127 +80,80 @@ class NeutralityCheck:
         title = article.get('title', '')
         content = article.get('content', '')
         
-        # Prepare the prompt
+        # Modified prompt to emphasize the range
         prompt = f"""
-        Evaluate the neutrality and political bias of the following article:
-        
+        Analyze the political bias of the following article. Provide a score from 0 to 100 based on the political leaning of the content:
+
+        0 = Extreme left-wing (very liberal, progressive, or socialist-leaning views)
+        50 = Neutral or factual (balanced coverage, no clear political leaning) IF IT IS FACTUAL AND NEUTRAL THE SCORE SHOULD BE CLOSE TO 50
+        100 = Extreme right-wing (very conservative, nationalist, or traditionalist views)
+        Values in between are also encouraged.
+
+        Focus on language, framing, and ideological slant to determine the political bias.
+        Also, make sure to provide a precise, unique score. Avoid using common round numbers.
+
         Title: {title}
         Content: {content}
-        
-        Please provide:
-        1. A bias score from 0 to 100 (0=far left, 50=neutral, 100=far right)
-        2. Identified segments showing potential bias
-        3. Recommendations for improving neutrality
-        
-        Format your evaluation as:
-        BIAS_SCORE: [score]
-        
-        BIASED_SEGMENTS:
-        [list of biased segments]
-        
-        RECOMMENDATIONS:
-        [list of recommendations]
+
+        Reply with ONLY this line:
+
+        BIAS_SCORE: [number between 0-100]
+        BIASED_SEGMENTS: [list of short biased phrases or sentences]
         """
 
-        # Generate the neutrality evaluation
         try:
             response = self.client.chat(
                 message=prompt,
                 model="command",
-                temperature=0.3
+                temperature=0.7,  # Increased temperature for more variance
+                max_tokens=100
             )
             
-            # Extract the text from the chat response
-            generated_text = response.text
+            # Print raw response for debugging
+            print(f"\nRaw Cohere response: {response.text}")
             
             # Extract evaluation components
-            sections = generated_text.split('\n\n')
+            generated_text = response.text.strip()
             bias_score = 50  # Default neutral
             biased_segments = []
-            recommendations = []
             
-            for section in sections:
-                if section.startswith('BIAS_SCORE:'):
+            # More robust parsing
+            for line in generated_text.split('\n'):
+                line = line.strip()
+                if line.startswith('BIAS_SCORE:'):
+                    score_text = line.replace('BIAS_SCORE:', '').strip()
                     try:
-                        bias_score = int(section.replace('BIAS_SCORE:', '').strip())
-                    except ValueError:
-                        # If parsing fails, extract just the number
-                        numbers = re.findall(r'\d+', section)
+                        # Extract first number found in the text
+                        numbers = re.findall(r'\d+', score_text)
                         if numbers:
-                            bias_score = int(numbers[0])
-                elif section.startswith('BIASED_SEGMENTS:'):
-                    segment_text = section.replace('BIASED_SEGMENTS:', '').strip()
-                    if segment_text:
-                        biased_segments = [seg.strip() for seg in segment_text.split('\n') if seg.strip()]
-                elif section.startswith('RECOMMENDATIONS:'):
-                    rec_text = section.replace('RECOMMENDATIONS:', '').strip()
-                    if rec_text:
-                        recommendations = [rec.strip() for rec in rec_text.split('\n') if rec.strip()]
+                            bias_score = min(100, max(0, int(numbers[0])))
+                            print(f"Extracted bias score: {bias_score}")
+                    except ValueError as e:
+                        print(f"Error parsing bias score: {e}")
+                        
+                elif line.startswith('BIASED_SEGMENTS:'):
+                    segment = line.replace('BIASED_SEGMENTS:', '').strip()
+                    if segment and segment != "[]":
+                        biased_segments = [segment]
             
             result = {
                 "bias_score": bias_score,
                 "biased_segments": biased_segments,
-                "recommendations": recommendations
+                "recommendations": []  # Simplified for faster processing
             }
             
             # Save the neutrality check result to the database
             self.db.save_analysis_result(title, result, "neutrality_check")
-        
-        except Exception as e:
-            logger.error(f"Error calling Cohere API: {str(e)}")
             
-            # Try to fetch similar analyses from the database
-            try:
-                # Try to get previous analyses for similar articles
-                prev_analyses = self.db.fetch_previous_analyses("neutrality_check", 5)
-                
-                # If we have previous analyses, use the most recent one
-                if prev_analyses:
-                    # Look for a similar title
-                    most_similar_analysis = None
-                    highest_similarity = 0
-                    
-                    import difflib
-                    for analysis in prev_analyses:
-                        similarity = difflib.SequenceMatcher(None, title.lower(), analysis['query'].lower()).ratio()
-                        if similarity > highest_similarity:
-                            highest_similarity = similarity
-                            most_similar_analysis = analysis
-                    
-                    # If we found a similar analysis with at least 30% similarity
-                    if most_similar_analysis and highest_similarity > 0.3:
-                        prev_result = json.loads(most_similar_analysis['result'])
-                        logger.info(f"Using similar previous analysis (similarity: {highest_similarity:.2f})")
-                        result = prev_result
-                    else:
-                        # Use the most recent analysis as fallback
-                        result = json.loads(prev_analyses[0]['result'])
-                        logger.info("Using most recent analysis as fallback")
-                else:
-                    # Create a balanced default result if no previous analyses
-                    result = {
-                        "bias_score": 50,
-                        "biased_segments": [],
-                        "recommendations": [
-                            "Include diverse perspectives on the topic",
-                            "Use neutral language when describing different viewpoints",
-                            "Present factual information with appropriate context"
-                        ]
-                    }
-            except Exception as db_err:
-                logger.error(f"Error fetching from database: {str(db_err)}")
-                # Create a balanced default result if database access fails
-                result = {
-                    "bias_score": 50,
-                    "biased_segments": [],
-                    "recommendations": [
-                        "Include diverse perspectives on the topic",
-                        "Use neutral language when describing different viewpoints",
-                        "Present factual information with appropriate context"
-                    ]
-                }
-        
-        return result
+            return result
+            
+        except Exception as e:
+            print(f"Error in neutrality evaluation: {str(e)}")
+            return {
+                "bias_score": 50,
+                "biased_segments": [],
+                "recommendations": []
+            }
 
     def format_output(self, neutrality_result: Dict[str, Any]) -> str:
         """

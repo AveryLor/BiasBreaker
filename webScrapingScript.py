@@ -11,10 +11,11 @@ import aiohttp
 from urllib.parse import urljoin, urlparse
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
+import os
 
 # Your Supabase credentials 
-SUPABASE_URL = 'https://jexfgqihwnhyehxwxmeq.supabase.co'
-SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpleGZncWlod25oeWVoeHd4bWVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI2NjMxOTUsImV4cCI6MjA1ODIzOTE5NX0.H4Wh-b3cqxBH-srLTFxYBriY6XuhKj1ZhjFCOfaqWI4'
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 # Initialize Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)

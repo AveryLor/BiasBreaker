@@ -16,66 +16,19 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # List of news sources with their URLs
 news_sources = {
-    'CBC News': 'https://www.cbc.ca/',
-   'CTV News': 'https://www.ctvnews.ca/',
-   'Global News': 'https://globalnews.ca/',
-   'Toronto Star': 'https://www.thestar.com/',
-   'National Post': 'https://nationalpost.com/',
-   'The Globe and Mail': 'https://www.theglobeandmail.com/',
-   'Ottawa Citizen': 'https://ottawacitizen.com/',
-   'Calgary Herald': 'https://calgaryherald.com/',
-   'Vancouver Sun': 'https://www.vancouversun.com/',
-   'Montreal Gazette': 'https://montrealgazette.com/',
-   'CNN': 'https://www.cnn.com/',
-   'Fox News': 'https://www.foxnews.com/',
-   'MSNBC': 'https://www.msnbc.com/',
-   'The New York Times': 'https://www.nytimes.com/',
-   'The Washington Post': 'https://www.washingtonpost.com/',
-   'Wall Street Journal': 'https://www.wsj.com/',
-   'Breitbart News': 'https://www.breitbart.com/',
-   'The Hill': 'https://thehill.com/',
-   'Politico': 'https://www.politico.com/',
-   'USA Today': 'https://www.usatoday.com/',
-   'New York Post': 'https://nypost.com/',
-   'NPR': 'https://www.npr.org/',
-   'The Atlantic': 'https://www.theatlantic.com/',
-   'Newsmax': 'https://www.newsmax.com/',
-   'Los Angeles Times': 'https://www.latimes.com/',
-   'News24': 'https://www.news24.com/',
-   'Punch': 'https://punchng.com/',
-   'Daily Nation': 'https://www.nation.co.ke/',
-   'Times of India': 'https://timesofindia.indiatimes.com/',
-   'Dawn': 'https://www.dawn.com/',
-   'The Japan Times': 'https://www.japantimes.co.jp/',
-   'The Straits Times': 'https://www.straitstimes.com/',
-   'BBC News': 'https://www.bbc.com/news/',
-   'Der Spiegel': 'https://www.spiegel.de/international/',
-   'France24': 'https://www.france24.com/en/',
-   'Spain News': 'https://www.spainnews.net/',
-   'Ansa': 'https://www.ansa.it/english/',
-   'ABC News Australia': 'https://www.abc.net.au/news/',
-   'Stuff': 'https://www.stuff.co.nz/',
-   'Riot Times': 'https://riotimesonline.com/',
-   'BA Times': 'https://www.batimes.com.ar/',
-   'Santiago Times': 'https://santiagotimes.cl/',
-   'Xinhua News': 'https://english.news.cn/',
-   'Arab News': 'https://www.arabnews.com/',
-   'Hurriyet Daily News': 'https://www.hurriyetdailynews.com/',
-   'Tehran Times': 'https://www.tehrantimes.com/',
-   'Mexico News Daily': 'https://mexiconewsdaily.com/',
-   'Krakow Post': 'https://www.krakowpost.com/',
-   'Daily Monitor': 'https://www.monitor.co.ug/',
-   'Romania Insider': 'https://www.romania-insider.com/'
+   'CTV News': 'https://www.ctvnews.ca/world/trumps-tariffs/',
 }
 
+
 # Function to insert news sources into Supabase
-def insert_news_sources(supabase, source_name, source_link, news_information):
+def insert_news_sources(supabase, source_name, source_link, news_information, article_titles):
     try:
         # Create a dictionary with the data to insert
         data = {
             'source_name': source_name,
             'source_link': source_link,
-            'news_information': news_information
+            'news_information': news_information,
+            'article_titles': article_titles
         }
         
         # Insert the data into the 'news' table
@@ -114,10 +67,12 @@ def is_likely_article(url, base_domain):
     
     # Skip URLs with non-article file extensions
     if any(url.lower().endswith(ext) for ext in non_article_extensions):
+        print(" Skipping non-article file extension")
         return False
     
     # Skip homepage and major section pages (usually short URLs)
     if url.replace('http://', '').replace('https://', '').replace(base_domain, '').count('/') <= 1:
+        print("Skipping homepage or major section")
         return False
     
     # URLs with date patterns are likely articles
@@ -130,6 +85,7 @@ def is_likely_article(url, base_domain):
     
     for pattern in date_patterns:
         if re.search(pattern, url.lower()):
+            print("Matched date pattern")
             return True
     
     # CBC News specific patterns that typically indicate articles
@@ -143,6 +99,7 @@ def is_likely_article(url, base_domain):
     
     for pattern in article_patterns:
         if re.search(pattern, url.lower()):
+            print("Matched pattern")
             return True
     
     return True  # Default to accepting URLs that passed the filters
@@ -189,30 +146,11 @@ def extract_article_links(soup, base_url):
     # Return only unique links that likely point to articles
     return links[:10]  # Return only top 10 links
 
-# Is the article in English
+# Check if the article is in English
 def is_english_article(article_soup): 
     html_tag = article_soup.find('html')
     lang = html_tag.get('lang') if html_tag else None
-    
-    # If lang attribute exists and is explicitly non-English, return False
-    if lang and lang.startswith('en') is False:
-        return False
-        
-    # Additional check: Look for common English words in title or meta description
-    title = article_soup.find('title')
-    title_text = title.get_text() if title else ""
-    
-    meta_desc = article_soup.find('meta', attrs={'name': 'description'})
-    desc_text = meta_desc.get('content', "") if meta_desc else ""
-    
-    combined_text = (title_text + " " + desc_text).lower()
-    english_indicators = ['the', 'and', 'news', 'in', 'on', 'at', 'for', 'with', 'by']
-    
-    # Count how many English indicator words are present
-    english_word_count = sum(1 for word in english_indicators if word in combined_text.split())
-    
-    # If we found at least 2 English indicators, assume it's English
-    return english_word_count >= 2
+    return not lang or lang.startswith('en')
 
 # Function to check if the page has sufficient article content
 def has_article_content(soup):
@@ -227,7 +165,7 @@ def has_article_content(soup):
     
     # An article should have a reasonable amount of text
     # (typically at least 200 characters)
-    return len(article_text) > 200
+    return len(article_text) > 400
 
 
 # Minimum required articles before continuing
@@ -275,7 +213,7 @@ for source_name, base_url in news_sources.items():
                     
                     # Check if this page has the characteristics of an article
                     if not has_article_content(article_soup):
-                        print(f"Page does not appear to be an article, skipping")
+                        print(f"Page does not appear to have enough content so therefore not an article, skipping")
                         continue
 
                     # Remove unwanted elements
@@ -294,7 +232,7 @@ for source_name, base_url in news_sources.items():
                     text = re.sub(r'\s+', ' ', text).strip()
                     
                     # If text is too short, it's likely not an article
-                    if len(text) < 1000:
+                    if len(text) < 400:
                         print(f"Content too short ({len(text)} chars), likely not an article")
                         continue
 
@@ -302,23 +240,26 @@ for source_name, base_url in news_sources.items():
                     article_data = {
                         "source": source_name,
                         "article_link": link,
-                        "article_text": text
+                        "article_text": text,
+                        "article_headline": article_soup.title.string
                     }
                     all_articles_data.append(article_data)
                     
                     # Print the article details
                     print(f"Source: {source_name}")
+                    print(f"Article Headline: {article_soup.title.string}")
                     print(f"Article link: {link}")
                     print(f"Article length: {len(text)} characters")
-                    print(f"Article text preview: {text[:]}...") # Print just a preview
+                    print(f"Article text preview: {text[:100]}...") # Print just a preview
 
                     # Insert the article into Supabase
-                    insert_news_sources(supabase, source_name, link, text)
+                    insert_news_sources(supabase, source_name, link, text, article_soup.title.string)
 
                 else:
                     print(f"Failed to access article {link}: HTTP status code {article_page.status_code}")
+
+                #time.sleep(2)  # Pause between article requests
                 
-                time.sleep(2)  # Pause between article requests
                 
             except Exception as e:
                 print(f"Failed to scrape article {link}: {e}")

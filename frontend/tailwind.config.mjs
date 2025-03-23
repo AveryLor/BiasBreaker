@@ -35,6 +35,15 @@ export default {
         input: 'hsl(var(--input, 0 0% 90%))',
         ring: 'hsl(var(--ring, 240 100% 50%))',
       },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: 0, transform: 'translateY(10px)' },
+          '100%': { opacity: 1, transform: 'translateY(0)' }
+        }
+      },
+      animation: {
+        fadeIn: 'fadeIn 0.4s ease-out forwards'
+      },
       borderRadius: {
         lg: 'var(--radius, 12px)',
         md: 'calc(var(--radius, 12px) - 2px)',

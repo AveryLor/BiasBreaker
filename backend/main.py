@@ -2,7 +2,7 @@ import os
 import uvicorn
 from api.neutrality_check import NeutralityCheck
 from api.neutral_article_generator import NeutralArticleGenerator
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Cookie, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -12,6 +12,9 @@ import logging
 import json
 import random
 from typing import List, Dict, Any, Optional
+from api.auth import Auth, UserCreate, UserLogin
+import jwt as pyjwt
+from datetime import datetime, timedelta
 
 # Suppress HTTP client debug logs
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -33,6 +36,11 @@ COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 supabase = create_client(supabase_url, supabase_key)
 cohere_client = cohere.Client(COHERE_API_KEY)
 
+# JWT settings
+JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-for-jwt-tokens")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_MINUTES = 60 * 24 * 7  # 1 week
+
 # Import custom API modules
 from api.neutrality_check import NeutralityCheck
 from api.neutral_article_generator import NeutralArticleGenerator
@@ -41,6 +49,7 @@ from api.natural_language_understanding import NaturalLanguageUnderstanding
 # Initialize API clients
 nlu = NaturalLanguageUnderstanding()  # Don't pass cohere_client
 neutral_generator = NeutralArticleGenerator()  # Initialize the neutral article generator
+auth_manager = Auth(supabase)  # Initialize auth manager
 
 app = FastAPI()
 
@@ -54,6 +63,29 @@ app.add_middleware(
 
 class ChatInput(BaseModel):
     message: str
+
+# Authentication related functions and classes
+class PasswordUpdateRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+async def get_current_user(access_token: Optional[str] = Cookie(None)):
+    if not access_token:
+        return None
+    
+    try:
+        payload = pyjwt.decode(access_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload.get("sub")
+        if user_id is None:
+            return None
+        
+        user = auth_manager.get_user_by_id(int(user_id))
+        if not user:
+            return None
+        
+        return user
+    except:
+        return None
 
 def extract_keywords(message):
     try:
@@ -373,11 +405,15 @@ def search_articles(keywords_with_source):
         return []
 
 @app.post("/api/chat")
-def receive_chat(chat_input: ChatInput):
+def receive_chat(chat_input: ChatInput, user = Depends(get_current_user)):
     try:
         print(f"\n{'#'*50}")
         print(f"PROCESSING QUERY: '{chat_input.message}'")
         print(f"{'#'*50}")
+        
+        # Save query to user history if user is authenticated
+        if user:
+            auth_manager.save_user_query(user["id"], chat_input.message)
         
         # Extract keywords from the query
         keywords_with_source = extract_keywords(chat_input.message)
@@ -560,6 +596,124 @@ def generate_article_summary(article_content, article_title):
             "• Could not generate complete summary",
             "• See full article for details"
         ]
+
+# Authentication and User Management Routes
+
+@app.post("/api/auth/register")
+async def register(user_data: UserCreate, response: Response):
+    result = auth_manager.register_user(user_data)
+    
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    
+    # Create JWT token
+    user_id = result["user"]["id"]
+    access_token = create_access_token(user_id)
+    
+    # Set cookie
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7  # 1 week
+    )
+    
+    return {"user": result["user"]}
+
+@app.post("/api/auth/login")
+async def login(credentials: UserLogin, response: Response):
+    result = auth_manager.login_user(credentials)
+    
+    if not result["success"]:
+        raise HTTPException(status_code=401, detail=result["message"])
+    
+    # Create JWT token
+    user_id = result["user"]["id"]
+    access_token = create_access_token(user_id)
+    
+    # Set cookie
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7  # 1 week
+    )
+    
+    return {"user": result["user"]}
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    response.delete_cookie(key="access_token")
+    return {"success": True}
+
+@app.get("/api/auth/me")
+async def get_current_user_info(user = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {"user": user}
+
+@app.post("/api/auth/change-password")
+async def change_password(
+    password_data: PasswordUpdateRequest,
+    user = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    result = auth_manager.update_password(
+        user["id"],
+        password_data.current_password,
+        password_data.new_password
+    )
+    
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    
+    return {"message": "Password updated successfully"}
+
+@app.delete("/api/auth/delete-account")
+async def delete_account(response: Response, user = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    result = auth_manager.delete_user(user["id"])
+    
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    
+    # Clear authentication
+    response.delete_cookie(key="access_token")
+    
+    return {"message": "Account deleted successfully"}
+
+@app.get("/api/user/queries")
+async def get_user_queries(user = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    result = auth_manager.get_user_queries(user["id"])
+    
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    
+    return {"queries": result["queries"]}
+
+# Helper function to create a JWT token
+def create_access_token(user_id: int):
+    expires = datetime.utcnow() + timedelta(minutes=JWT_EXPIRATION_MINUTES)
+    
+    payload = {
+        "sub": str(user_id),
+        "exp": expires
+    }
+    
+    access_token = pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return access_token
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

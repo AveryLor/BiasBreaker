@@ -8,6 +8,7 @@ interface MergedArticleProps {
 
 const MergedArticle: React.FC<MergedArticleProps> = ({ mergedArticle }) => {
   const [showSources, setShowSources] = useState(false);
+  const [isHovering, setIsHovering] = useState(false);
   
   return (
     <div className="bg-black/40 backdrop-blur-sm rounded-lg shadow-[0_0_15px_rgba(0,255,255,0.15)] p-6 mb-8 border border-cyan-900/50">
@@ -33,9 +34,47 @@ const MergedArticle: React.FC<MergedArticleProps> = ({ mergedArticle }) => {
           {mergedArticle.sourceArticles && mergedArticle.sourceArticles.length > 0 && (
             <button
               onClick={() => setShowSources(!showSources)}
-              className="text-xs text-fuchsia-400 hover:text-fuchsia-300 focus:outline-none"
+              onMouseEnter={() => setIsHovering(true)}
+              onMouseLeave={() => setIsHovering(false)}
+              className={`relative group flex items-center gap-2 px-4 py-1.5 rounded-full transition-all duration-300 ease-in-out ${
+                showSources 
+                ? "bg-fuchsia-700 text-white shadow-[0_0_10px_rgba(217,70,239,0.5)]" 
+                : "bg-gradient-to-r from-cyan-500 to-fuchsia-500 text-white shadow-[0_0_10px_rgba(8,145,178,0.5)] hover:shadow-[0_0_15px_rgba(217,70,239,0.7)] hover:scale-105"
+              }`}
             >
-              {showSources ? 'Hide details' : 'Show details'}
+              <span className={`transition-all duration-300 ${isHovering && !showSources ? "translate-x-0.5" : ""}`}>
+                {showSources ? 'Hide details' : 'Show details'}
+              </span>
+              
+              {!showSources && (
+                <svg 
+                  xmlns="http://www.w3.org/2000/svg" 
+                  className={`h-4 w-4 transition-transform duration-300 ${isHovering ? "translate-x-1" : ""}`} 
+                  fill="none" 
+                  viewBox="0 0 24 24" 
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              )}
+              
+              {showSources && (
+                <svg 
+                  xmlns="http://www.w3.org/2000/svg" 
+                  className="h-4 w-4" 
+                  fill="none" 
+                  viewBox="0 0 24 24" 
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              )}
+              
+              {!showSources && (
+                <span className="absolute -top-6 left-1/2 transform -translate-x-1/2 text-xs text-cyan-300 opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
+                  Click to see source details!
+                </span>
+              )}
             </button>
           )}
         </div>
@@ -51,7 +90,7 @@ const MergedArticle: React.FC<MergedArticleProps> = ({ mergedArticle }) => {
         )}
         
         {showSources && mergedArticle.sourceArticles && (
-          <div className="mt-4 space-y-4">
+          <div className="mt-4 space-y-4 animate-fadeIn">
             {mergedArticle.sourceArticles.map((source, idx) => {
               const biasGroup = mapBiasToGroup(source.biasScore);
               const biasColor = getBiasColor(source.biasScore);

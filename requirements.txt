@@ -4,5 +4,9 @@ pydantic==2.5.2
 python-dotenv==1.0.0
 supabase==1.2.0
 cohere==4.37
-httpx==0.24.1 
+httpx==0.24.1
+pandas
+pydantic[email]
+bcrypt
+PyJWT
 

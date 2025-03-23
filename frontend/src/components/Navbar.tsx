@@ -2,28 +2,17 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Disclosure, Menu, Transition } from '@headlessui/react';
+import { Disclosure } from '@headlessui/react';
 import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
-import { useTheme } from 'next-themes';
 import { usePathname } from 'next/navigation';
 
-
-interface NavigationItem {
-  name: string;
-  href: string;
-  current: boolean;
-}
-
-const navigationItems: NavigationItem[] = [
+const navigationItems = [
   { name: 'Home', href: '/', current: true },
-  { name: 'Compare', href: '/compare', current: false },
-  { name: 'Explore', href: '/explore', current: false },
-  { name: '3D Demo', href: '/three-demo', current: false },
+  { name: 'Compare', href: '/compare', current: false }
 ];
 
 export default function Navbar() {
   const pathname = usePathname();
-  const { theme } = useTheme();
   const [navigation, setNavigation] = useState(navigationItems);
   
   // Update current page in navigation
@@ -37,7 +26,7 @@ export default function Navbar() {
   }, [pathname]);
   
   return (
-    <Disclosure as="nav" className="bg-black/60 backdrop-blur-md border-b border-cyan-900/50 shadow-[0_0_15px_rgba(0,255,255,0.15)] fixed w-full top-0 z-50 py-4">
+    <Disclosure as="nav" className="bg-black/60 backdrop-blur-md border-b border-cyan-900/50 shadow-[0_0_15px_rgba(0,255,255,0.15)] fixed w-full top-0 z-50 py-2">
       {({ open }: { open: boolean }) => (
         <>
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -51,7 +40,6 @@ export default function Navbar() {
                   </Link>
                 </div>
                 <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-                  {/* Desktop Navigation */}
                   {navigation.map((item) => (
                     <Link
                       key={item.name}
@@ -69,20 +57,15 @@ export default function Navbar() {
                 </div>
               </div>
               
-              <div className="flex items-center">
-                
-                
-                {/* Mobile menu button */}
-                <div className="flex items-center sm:hidden ml-4">
-                  <Disclosure.Button className="inline-flex items-center justify-center rounded-md p-2 text-gray-300 hover:bg-gray-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-inset focus:ring-fuchsia-500">
-                    <span className="sr-only">Open main menu</span>
-                    {open ? (
-                      <XMarkIcon className="block h-6 w-6" aria-hidden="true" />
-                    ) : (
-                      <Bars3Icon className="block h-6 w-6" aria-hidden="true" />
-                    )}
-                  </Disclosure.Button>
-                </div>
+              <div className="flex items-center sm:hidden ml-4">
+                <Disclosure.Button className="inline-flex items-center justify-center rounded-md p-2 text-gray-300 hover:bg-gray-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-inset focus:ring-fuchsia-500">
+                  <span className="sr-only">Open main menu</span>
+                  {open ? (
+                    <XMarkIcon className="block h-6 w-6" aria-hidden="true" />
+                  ) : (
+                    <Bars3Icon className="block h-6 w-6" aria-hidden="true" />
+                  )}
+                </Disclosure.Button>
               </div>
             </div>
           </div>
@@ -111,4 +94,4 @@ export default function Navbar() {
       )}
     </Disclosure>
   );
-} 
+}

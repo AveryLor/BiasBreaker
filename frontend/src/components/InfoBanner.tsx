@@ -9,29 +9,41 @@ export default function InfoBanner() {
   if (!isVisible) return null;
 
   return (
-    <div className="w-full bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4 my-4">
+    <div className="w-full bg-gray-900/90 border border-indigo-900/40 rounded-lg p-6 my-4 shadow-lg backdrop-blur-sm">
       <div className="flex">
         <div className="flex-shrink-0">
-          <InformationCircleIcon className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+          <InformationCircleIcon className="h-5 w-5 text-cyan-400" />
         </div>
         <div className="ml-3 flex-1">
-          <h3 className="text-sm font-medium text-blue-700 dark:text-blue-300">About this service</h3>
-          <div className="mt-2 text-sm text-blue-600 dark:text-blue-200">
-            <p className="mb-1">
+          <h3 className="text-base font-medium text-white">About this service</h3>
+          <div className="mt-2 text-sm text-gray-300">
+            <p className="mb-2">
               BiasBreaker aggregates news from multiple sources and generates balanced articles by:
             </p>
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Scanning reputable sources across the ideological spectrum</li>
-              <li>Prioritizing underrepresented voices and perspectives</li>
-              <li>Using AI to synthesize balanced, comprehensive coverage</li>
-              <li>Providing transparent source attribution</li>
+            <ul className="space-y-2 pl-5">
+              <li className="flex items-start">
+                <span className="inline-block w-2 h-2 bg-cyan-500 rounded-full mt-1.5 mr-2"></span>
+                <span>Scanning reputable sources across the ideological spectrum</span>
+              </li>
+              <li className="flex items-start">
+                <span className="inline-block w-2 h-2 bg-cyan-500 rounded-full mt-1.5 mr-2"></span>
+                <span>Prioritizing underrepresented voices and perspectives</span>
+              </li>
+              <li className="flex items-start">
+                <span className="inline-block w-2 h-2 bg-cyan-500 rounded-full mt-1.5 mr-2"></span>
+                <span>Using AI to synthesize balanced, comprehensive coverage</span>
+              </li>
+              <li className="flex items-start">
+                <span className="inline-block w-2 h-2 bg-cyan-500 rounded-full mt-1.5 mr-2"></span>
+                <span>Providing transparent source attribution</span>
+              </li>
             </ul>
           </div>
         </div>
         <div className="ml-auto">
           <button
             type="button"
-            className="inline-flex rounded-md p-1.5 text-blue-500 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-800/50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="inline-flex rounded-md p-1.5 text-gray-400 hover:text-white hover:bg-gray-800/50 focus:outline-none focus:ring-1 focus:ring-cyan-500"
             onClick={() => setIsVisible(false)}
           >
             <span className="sr-only">Dismiss</span>

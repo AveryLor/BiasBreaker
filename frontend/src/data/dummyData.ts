@@ -3,15 +3,26 @@ export interface Article {
   source: string;
   title: string;
   excerpt: string;
-  perspective: 'Liberal' | 'Conservative' | 'Centrist' | 'Progressive' | 'Libertarian';
+  perspective: 'Liberal' | 'Conservative' | 'Centrist' | 'Progressive' | 'Libertarian' | 'Liberals' | 'Social Democrats' | 'Classical Liberals' | 'Conservatives';
   date: string;
   url: string;
+  biasScore?: number;
+  content?: string;
+}
+
+export interface SourceArticle {
+  id: string;
+  title: string;
+  biasScore: number;
+  sourceLink: string;
+  summary: string[];
 }
 
 export interface MergedArticle {
   title: string;
   summary: string;
   sourcesConsidered: string[];
+  sourceArticles?: SourceArticle[];
 }
 
 export interface NewsData {

@@ -374,7 +374,7 @@ def search_articles(keywords):
             # Try both table names to ensure compatibility
             try:
                 response = supabase.table("news") \
-                    .select("id, article_titles, news_information") \
+                    .select("id, article_titles, news_information, source_link") \
                     .ilike("article_titles", f"%{keyword}%") \
                     .execute()
                     
@@ -446,6 +446,7 @@ def search_articles(keywords):
                             "id": article['id'],
                             "title": article['article_titles'],
                             "content": article['news_information'],
+                            "source_link": article.get('source_link', ''),  # Include source link
                             "bias_score": bias_score,
                             "biased_segments": neutrality_result['biased_segments']
                         })
@@ -454,8 +455,119 @@ def search_articles(keywords):
                     if len(all_results) >= max_articles_to_collect:
                         print(f"\nReached {max_articles_to_collect} articles. Stopping search.")
                         break
+                
+                # Break the outer loop if we already have enough articles
+                if len(all_results) >= max_articles_to_collect:
+                    break
             else:
                 print(f"No results found for keyword '{keyword}'")
+
+        # Print the number of articles found
+        print(f"\nFound {len(all_results)} articles matching keywords")
+
+        # Print the bias scores dictionary
+        print("\nAll articles with bias scores:")
+        for article_id, score in bias_scores_dict.items():
+            print(f"Article ID: {article_id}, Bias Score: {score}")
+
+        # Function to find closest articles to target scores
+        def find_closest_articles(scores_dict, target_scores=[0, 25, 75, 100]):
+            if len(scores_dict) <= 4:
+                return {k: v for k, v in scores_dict.items()}
+            
+            selected_articles = {}
+            # For each target score, find the closest actual score
+            for target in target_scores:
+                closest_id = min(scores_dict.keys(), 
+                               key=lambda k: abs(scores_dict[k] - target))
+                selected_articles[closest_id] = scores_dict[closest_id]
+                # Remove selected article to avoid duplicates
+                scores_dict = {k: v for k, v in scores_dict.items() if k != closest_id}
+            
+            return selected_articles
+
+        # Get selected articles
+        selected_articles_dict = find_closest_articles(bias_scores_dict.copy())
+        
+        # Create a list of selected articles with full data
+        selected_articles = []
+        
+        print("\nSelected articles for diverse bias representation:")
+        for article_id, score in selected_articles_dict.items():
+            article = next((a for a in all_results if a['id'] == article_id), None)
+            if article:
+                selected_articles.append(article)
+                print(f"\nTitle: {article['title']}")
+                print(f"Bias Score: {score}")
+                if article['biased_segments']:
+                    print("Biased Segments:", ", ".join(article['biased_segments']))
+        
+        # Generate neutral article from selected articles
+        if selected_articles and len(selected_articles) >= 1:
+            # Prepare source articles info
+            source_articles = []
+
+            # Handle edge case when there might be only one article
+            if len(selected_articles) >= 2:
+                min_bias = min(article.get('bias_score', 0) for article in selected_articles)
+                max_bias = max(article.get('bias_score', 0) for article in selected_articles)
+            else:
+                # For a single article, the range is just that article's bias score
+                min_bias = max_bias = selected_articles[0].get('bias_score', 50)
+            
+            print("\nGenerating article summaries for each source article:")
+            print(f"{'='*80}")
+            
+            for article in selected_articles:
+                # Generate a summary for this article
+                summary = generate_article_summary(
+                    article.get('content', ''), 
+                    article.get('title', 'No title')
+                )
+                
+                # Print the article summary
+                print(f"SOURCE ARTICLE: {article.get('title', 'No title')}")
+                print(f"BIAS SCORE: {article.get('bias_score', 0)}")
+                print(f"SOURCE LINK: {article.get('source_link', 'No link available')}")
+                print("SUMMARY:")
+                for bullet in summary:
+                    print(f"  {bullet}")
+                print(f"{'.'*50}")
+                
+                # Add this article with its summary to the source_articles list
+                source_articles.append({
+                    "id": article.get('id', 'unknown'),
+                    "title": article.get('title', 'No title'),
+                    "bias_score": article.get('bias_score', 0),
+                    "source_link": article.get('source_link', ''),
+                    "summary": summary
+                })
+            
+            print(f"{'='*80}")
+                
+            # Generate neutral article
+            neutral_article = neutral_generator.generate_neutral_article(selected_articles)
+            
+            # Add source information and bias score
+            neutral_article['source_articles'] = source_articles
+            neutral_article['source_count'] = len(source_articles)
+            neutral_article['source_bias_range'] = f"{min_bias}-{max_bias}"
+            neutral_article['bias_score'] = 50  # Neutral
+            neutral_article['id'] = "neutral-generated"  # Special ID to identify this article
+            
+            all_results.append(neutral_article)
+            
+            # Print the full neutral article for testing purposes
+            print(f"\n{'='*80}")
+            print(f"GENERATED NEUTRAL ARTICLE:")
+            print(f"{'='*80}")
+            print(f"TITLE: {neutral_article['title']}")
+            print(f"{'='*80}")
+            print(neutral_article['content'])
+            print(f"{'='*80}")
+            print(f"SOURCE COUNT: {len(source_articles)}")
+            print(f"SOURCE BIAS RANGE: {min_bias}-{max_bias}")
+            print(f"{'='*80}\n")
         
         print(f"Total unique articles found: {len(all_results)}")
         return all_results
@@ -523,6 +635,7 @@ def receive_chat(chat_input: ChatInput):
                         "id": source.get('id', 'unknown'),
                         "title": source.get('title', 'No title'),
                         "bias_score": source.get('bias_score', 0),
+                        "source_link": source.get('source_link', ''),
                         "summary": source.get('summary', [
                             "• Summary not available",
                             "• Please see full article",
@@ -542,6 +655,8 @@ def receive_chat(chat_input: ChatInput):
                 sorted_sources = sorted(source_articles_with_summaries, key=lambda x: x.get('bias_score', 0))
                 for idx, source in enumerate(sorted_sources, 1):
                     print(f"\nSOURCE {idx}: '{source.get('title')}'")
+                    print(f"  Bias Score: {source.get('bias_score', 0)}")
+                    print(f"  Link: {source.get('source_link', 'No link available')}")
                     for bullet in source.get('summary', []):
                         print(f"  {bullet}")
         else:

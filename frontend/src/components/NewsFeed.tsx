@@ -6,6 +6,8 @@ import { dummyNewsData } from '../data/dummyData';
 import { Article, MergedArticle as MergedArticleType, NewsData } from '../data/dummyData';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { sendChatMessage, convertToFrontendArticle, convertToMergedArticle } from '../utils/apiService';
+import LoadingState from './LoadingState';
 
 interface NewsFeedProps {
   initialTopic?: string | null;
@@ -27,15 +29,16 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
   const [searchTopic, setSearchTopic] = useState<string | null>(null);
   const [showArticles, setShowArticles] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [articleData, setArticleData] = useState<NewsData>(emptyNewsData);
   const [error, setError] = useState<string | null>(null);
+  
+  // State for storing the real data from the backend
+  const [articles, setArticles] = useState(dummyNewsData.articles);
+  const [mergedArticle, setMergedArticle] = useState(dummyNewsData.mergedArticle);
   
   // Use the initialTopic when provided
   useEffect(() => {
     if (initialTopic) {
-      setSearchTopic(initialTopic);
-      setShowArticles(true);
-      fetchArticlesByTopic(initialTopic);
+      handleTopicSubmit(initialTopic);
     }
   }, [initialTopic]);
   
@@ -106,7 +109,8 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
           }
         };
         
-        setArticleData(validData);
+        setArticles(validData.articles);
+        setMergedArticle(validData.mergedArticle);
       } catch (jsonError) {
         console.error('JSON parsing error:', jsonError, 'Response was:', responseText);
         throw new Error('Invalid response format');
@@ -115,45 +119,71 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
       console.error('Error fetching articles:', err);
       setError('Failed to fetch articles. Using sample data instead.');
       // Fall back to dummy data
-      setArticleData(dummyNewsData);
+      setArticles(dummyNewsData.articles);
+      setMergedArticle(dummyNewsData.mergedArticle);
     } finally {
       setIsLoading(false);
     }
   };
   
   // Filter articles based on both perspective and search topic
-  const filteredArticles = articleData?.articles ? articleData.articles.filter(article => {
+  const filteredArticles = articles.filter(article => {
     // Filter by perspective if selected
     const perspectiveMatch = selectedPerspective 
       ? article.perspective === selectedPerspective
       : true;
     
     return perspectiveMatch;
-  }) : [];
+  });
   
-  const perspectives = ['All', 'Liberal', 'Conservative', 'Centrist', 'Progressive', 'Libertarian'];
+  const perspectives = ['All', 'Liberals', 'Social Democrats', 'Centrist or Objective', 'Classical Liberals', 'Conservatives'];
   
   // Handle topic submission from chatbot
-  const handleTopicSubmit = (topic: string) => {
+  const handleTopicSubmit = async (topic: string) => {
     setSearchTopic(topic);
     setShowArticles(true);
-    fetchArticlesByTopic(topic);
+    setIsLoading(true);
+    setError(null);
     
-    // Check if user is authenticated
-    const tokenFromStorage = localStorage.getItem('token');
-    const tokenFromSession = session?.accessToken || '';
-    const isAuthenticated = tokenFromStorage || tokenFromSession;
-    
-    // If not authenticated, show an alert about search history
-    if (!isAuthenticated) {
-      console.log('User not authenticated - searches will not be saved to history');
+    try {
+      // Check if user is authenticated
+      const tokenFromStorage = localStorage.getItem('token');
+      const tokenFromSession = session?.accessToken || '';
+      const isAuthenticated = tokenFromStorage || tokenFromSession;
       
-      // Show a notification to the user
-      const shouldSignIn = window.confirm('Sign in to save your search history. Would you like to sign in now?');
-      if (shouldSignIn) {
-        // Navigate to sign-in page
-        window.location.href = '/auth/signin';
+      // If not authenticated, show an alert about search history
+      if (!isAuthenticated) {
+        console.log('User not authenticated - searches will not be saved to history');
+        
+        // Show a notification to the user
+        const shouldSignIn = window.confirm('Sign in to save your search history. Would you like to sign in now?');
+        if (shouldSignIn) {
+          // Navigate to sign-in page
+          window.location.href = '/auth/signin';
+          return; // Stop here if user wants to sign in
+        }
       }
+      
+      const response = await sendChatMessage(topic);
+      
+      if (response.success) {
+        // Update state with received data
+        setArticles(response.articles || []);
+        setMergedArticle(response.mergedArticle || dummyNewsData.mergedArticle);
+      } else {
+        setError(response.error || 'Failed to fetch results');
+        // Fall back to dummy data
+        setArticles(dummyNewsData.articles);
+        setMergedArticle(dummyNewsData.mergedArticle);
+      }
+    } catch (error) {
+      console.error('Error fetching articles:', error);
+      setError('Failed to fetch articles. Using sample data instead.');
+      // Fall back to dummy data
+      setArticles(dummyNewsData.articles);
+      setMergedArticle(dummyNewsData.mergedArticle);
+    } finally {
+      setIsLoading(false);
     }
   };
   
@@ -167,16 +197,14 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
       <ChatbotInput onTopicSubmit={handleTopicSubmit} initialValue={initialTopic} />
       
       {isLoading && (
-        <div className="flex justify-center items-center py-20">
-          <div className="animate-pulse flex flex-col items-center">
-            <div className="w-12 h-12 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-cyan-400">Loading articles...</p>
-          </div>
+        <div className="my-8">
+          <LoadingState />
+          <p className="text-center text-gray-300 mt-4">Analyzing news sources and generating a neutral perspective...</p>
         </div>
       )}
       
       {error && (
-        <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-4 mb-6 text-center">
+        <div className="my-8 p-4 bg-red-900/30 border border-red-700/50 rounded-lg text-center">
           <p className="text-red-300">{error}</p>
         </div>
       )}
@@ -220,7 +248,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
           </div>
           
           {/* AI-Generated Summary */}
-          <MergedArticle mergedArticle={articleData.mergedArticle} />
+          <MergedArticle mergedArticle={mergedArticle} />
           
           {/* Individual Articles */}
           <h2 className="text-2xl font-bold mb-6 bg-gradient-to-r from-cyan-400 to-cyan-300 bg-clip-text text-transparent">
@@ -244,7 +272,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
         </>
       )}
       
-      {!showArticles && !searchTopic && (
+      {!showArticles && !searchTopic && !isLoading && (
         <div className="text-center py-10 bg-black/40 backdrop-blur-sm rounded-lg border border-cyan-900/50 mt-8">
           <p className="text-gray-300 text-lg">
             Enter a news topic above to see relevant articles and perspectives.

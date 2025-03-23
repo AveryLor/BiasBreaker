@@ -15,19 +15,23 @@ class NeutralArticleGenerator:
         """
         Generate a neutral article based on the provided articles
         """
-        if not articles or len(articles) < 2:
-            print("Insufficient articles to generate a neutral version")
-            return {"title": "Not enough sources", "content": "At least two articles are needed to generate a neutral article."}
+        if not articles:
+            print("No articles provided to generate a neutral version")
+            return {"title": "No sources available", "content": "No articles were found to generate content."}
         
         # Log the number of articles being used as sources
-        print(f"\nGenerating neutral article from {len(articles)} sources:")
+        article_count = len(articles)
+        print(f"\nGenerating neutral article from {article_count} source{'s' if article_count > 1 else ''}:")
         for i, article in enumerate(articles):
             bias = article.get('bias_score', 'Unknown')
             title = article.get('title', 'No title')
             print(f"  Source {i+1}: '{title}' (Bias: {bias})")
 
-        # Create the prompt for generating a neutral article
-        prompt = self._create_neutral_article_prompt(articles)
+        # Create prompt based on number of articles
+        if len(articles) == 1:
+            prompt = self._create_neutral_article_prompt_single(articles[0])
+        else:
+            prompt = self._create_neutral_article_prompt(articles)
         
         try:
             print(f"\nSending request to Cohere API...")
@@ -97,4 +101,36 @@ class NeutralArticleGenerator:
         prompt += "Format the output with a title starting with '# ' followed by the article content."
         
         print(f"\nCreated prompt with {len(prompt)} characters")
+        return prompt 
+
+    def _create_neutral_article_prompt_single(self, article):
+        """Create a prompt for generating a neutral version of a single article"""
+        title = article.get('title', 'No title')
+        bias_score = article.get('bias_score', 'Unknown')
+        content = article.get('content', "No content available")
+        
+        # Truncate content if it's too long
+        if len(content) > 1000:
+            first_part = content[:600]
+            last_part = content[-400:]
+            content = f"{first_part}...[content truncated]...{last_part}"
+        
+        prompt = f"""Rewrite the following article in a completely neutral tone, removing any bias or partisan language.
+        
+        ORIGINAL ARTICLE (Bias Score: {bias_score}):
+        Title: {title}
+        
+        Content: {content}
+        
+        INSTRUCTIONS:
+        1. Create a neutral version of this article that presents only factual information
+        2. Remove any biased language, loaded words, or partisan framing
+        3. Maintain all the key factual points from the original
+        4. Write in a balanced, objective style appropriate for a neutral news source
+        5. Include a title starting with '# ' on the first line
+        
+        Format your response with a title starting with '# ' followed by the article content.
+        """
+        
+        print(f"\nCreated single-article neutrality prompt with {len(prompt)} characters")
         return prompt 

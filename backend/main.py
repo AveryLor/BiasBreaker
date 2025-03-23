@@ -124,7 +124,7 @@ def search_articles(keywords):
                 break
                 
             response = supabase.table("news") \
-                .select("id, article_titles, news_information") \
+                .select("id, article_titles, news_information, source_link") \
                 .ilike("article_titles", f"%{keyword}%") \
                 .execute()
             
@@ -151,6 +151,7 @@ def search_articles(keywords):
                         "id": article['id'],
                         "title": article['article_titles'],
                         "content": article['news_information'],
+                        "source_link": article.get('source_link', ''),  # Include source link
                         "bias_score": bias_score,
                         "biased_segments": neutrality_result['biased_segments']
                     })
@@ -205,11 +206,17 @@ def search_articles(keywords):
                     print("Biased Segments:", ", ".join(article['biased_segments']))
         
         # Generate neutral article from selected articles
-        if selected_articles and len(selected_articles) >= 4:
+        if selected_articles and len(selected_articles) >= 1:
             # Prepare source articles info
             source_articles = []
-            min_bias = min(article.get('bias_score', 0) for article in selected_articles)
-            max_bias = max(article.get('bias_score', 0) for article in selected_articles)
+
+            # Handle edge case when there might be only one article
+            if len(selected_articles) >= 2:
+                min_bias = min(article.get('bias_score', 0) for article in selected_articles)
+                max_bias = max(article.get('bias_score', 0) for article in selected_articles)
+            else:
+                # For a single article, the range is just that article's bias score
+                min_bias = max_bias = selected_articles[0].get('bias_score', 50)
             
             print("\nGenerating article summaries for each source article:")
             print(f"{'='*80}")
@@ -224,6 +231,7 @@ def search_articles(keywords):
                 # Print the article summary
                 print(f"SOURCE ARTICLE: {article.get('title', 'No title')}")
                 print(f"BIAS SCORE: {article.get('bias_score', 0)}")
+                print(f"SOURCE LINK: {article.get('source_link', 'No link available')}")
                 print("SUMMARY:")
                 for bullet in summary:
                     print(f"  {bullet}")
@@ -234,6 +242,7 @@ def search_articles(keywords):
                     "id": article.get('id', 'unknown'),
                     "title": article.get('title', 'No title'),
                     "bias_score": article.get('bias_score', 0),
+                    "source_link": article.get('source_link', ''),
                     "summary": summary
                 })
             
@@ -328,6 +337,7 @@ def receive_chat(chat_input: ChatInput):
                         "id": source.get('id', 'unknown'),
                         "title": source.get('title', 'No title'),
                         "bias_score": source.get('bias_score', 0),
+                        "source_link": source.get('source_link', ''),
                         "summary": source.get('summary', [
                             "• Summary not available",
                             "• Please see full article",
@@ -347,6 +357,8 @@ def receive_chat(chat_input: ChatInput):
                 sorted_sources = sorted(source_articles_with_summaries, key=lambda x: x.get('bias_score', 0))
                 for idx, source in enumerate(sorted_sources, 1):
                     print(f"\nSOURCE {idx}: '{source.get('title')}'")
+                    print(f"  Bias Score: {source.get('bias_score', 0)}")
+                    print(f"  Link: {source.get('source_link', 'No link available')}")
                     for bullet in source.get('summary', []):
                         print(f"  {bullet}")
         else:

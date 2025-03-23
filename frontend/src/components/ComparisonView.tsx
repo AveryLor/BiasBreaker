@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import { Outfit } from 'next/font/google';
 
 interface NewsSource {
   id: string;
@@ -17,6 +18,8 @@ interface ComparisonViewProps {
   topic: string;
   sources: NewsSource[];
 }
+
+const outfit = Outfit({ subsets: ['latin'] });
 
 export default function ComparisonView({ topic, sources }: ComparisonViewProps) {
   const [selectedSourceIndices, setSelectedSourceIndices] = useState<[number, number]>([0, 1]);
@@ -89,7 +92,9 @@ export default function ComparisonView({ topic, sources }: ComparisonViewProps) 
                   </button>
                   
                   <div className="text-center">
-                    <h3 className="font-medium text-gray-900 dark:text-white">{source.name}</h3>
+                    <h3 className={`${outfit.className} font-medium text-gray-900 dark:text-white`}>
+                      {source.name}
+                    </h3>
                     <div className="flex gap-2 justify-center mt-1">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${categoryColors[source.category]}`}>
                         {source.category.charAt(0).toUpperCase() + source.category.slice(1)}
@@ -104,7 +109,7 @@ export default function ComparisonView({ topic, sources }: ComparisonViewProps) 
                   
                   <button 
                     onClick={() => handleSourceChange(columnIndex as 0 | 1, 'next')}
-                    className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+                    className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-center"
                     aria-label="Next source"
                   >
                     <ChevronRightIcon className="h-5 w-5" />

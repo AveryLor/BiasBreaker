@@ -3,6 +3,7 @@ import { Inter, Outfit } from 'next/font/google';
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import Navbar from "@/components/Navbar";
+import { AuthProvider } from "@/utils/AuthContext";
 
 const inter = Inter({ subsets: ['latin'] });
 const outfit = Outfit({ subsets: ['latin'] });
@@ -21,12 +22,14 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.className} ${outfit.className} antialiased bg-gray-50 dark:bg-gray-900`}>
         <ThemeProvider>
-          <div className="relative z-20">
-            <Navbar />
-          </div>
-          <main className="relative">
-            {children}
-          </main>
+          <AuthProvider>
+            <div className="relative z-20">
+              <Navbar />
+            </div>
+            <main className="relative">
+              {children}
+            </main>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

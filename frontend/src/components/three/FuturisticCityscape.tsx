@@ -133,7 +133,7 @@ function Buildings({ count = 25, newsArticles }: { count: number, newsArticles: 
       const emissiveIntensity = 0.5 + Math.random() * 0.5;
       
       // Only taller buildings get billboards, and fewer of them
-      const hasBillboard = heightCategory === 2 && Math.random() > 0.5;
+      const hasBillboard = (heightCategory === 2 || heightCategory === 1) && Math.random() > 0.3;
       
       // Assign a specific news outlet to this billboard
       let billboardOutlet = null;
@@ -202,8 +202,8 @@ function Buildings({ count = 25, newsArticles }: { count: number, newsArticles: 
         const buildingHeight = building.billboardHeight as number;
         
         // Default billboard dimensions
-        const billboardWidth = 6.0; // Increased width for better overlap detection
-        const billboardDepth = 1.5; // Increased depth for better overlap detection
+        const billboardWidth = 5.0; // Reduced width to allow more billboards
+        const billboardDepth = 1.0; // Reduced depth to allow more billboards
         
         // Check if this billboard would overlap with any other building
         const wouldOverlap = data.some(otherBuilding => {
@@ -222,11 +222,11 @@ function Buildings({ count = 25, newsArticles }: { count: number, newsArticles: 
           
           // Check if billboard would intersect with other building
           const horizontalOverlap = 
-            distanceX < (billboardWidth / 2 + otherWidth / 2) && 
-            distanceZ < (billboardDepth / 2 + otherDepth / 2);
+            distanceX < (billboardWidth / 2 + otherWidth / 2) * 0.8 && 
+            distanceZ < (billboardDepth / 2 + otherDepth / 2) * 0.8;
           
           // Only consider buildings that are almost as tall as where we want to place the billboard
-          const otherBuildingTooTall = (otherHeight / 2 + otherBuilding.position[1]) > (buildingHeight - 1);
+          const otherBuildingTooTall = (otherHeight / 2 + otherBuilding.position[1]) > (buildingHeight - 0.5);
           
           return horizontalOverlap && otherBuildingTooTall;
         });
@@ -330,7 +330,7 @@ function Buildings({ count = 25, newsArticles }: { count: number, newsArticles: 
         // Position well above the building top
         const position: [number, number, number] = [
           building.position[0] as number,
-          (building.billboardHeight as number) + 2, // Increased height for cleaner separation
+          (building.billboardHeight as number) + 1.5, // Slightly lower for better visibility
           building.position[2] as number
         ];
             
@@ -349,8 +349,50 @@ function Buildings({ count = 25, newsArticles }: { count: number, newsArticles: 
             position={position}
             rotation={rotation}
             article={building.billboardArticle as NewsArticle}
-            scale={2.0} // Larger, consistent size
+            scale={1.8} // Slightly smaller for more billboards
             buildingId={i}
+          />
+        );
+      })}
+      
+      {/* Add floating billboards not attached to buildings */}
+      {[...Array(12)].map((_, i) => {
+        // Position floating billboards around the cityscape perimeter
+        const angle = (i / 12) * Math.PI * 2;
+        const radius = 25 + Math.random() * 10; // Distance from center
+        const height = 8 + Math.random() * 15; // Random height
+        
+        const position: [number, number, number] = [
+          Math.sin(angle) * radius,
+          height,
+          Math.cos(angle) * radius
+        ];
+        
+        // Calculate rotation to face the center
+        const rotationY = Math.atan2(position[0], position[2]) + Math.PI;
+        const rotation: [number, number, number] = [0, rotationY, 0];
+
+        // Create or reuse available article data
+        const billboardArticle = i < newsArticles.length 
+          ? {
+              ...newsArticles[i % newsArticles.length],
+              source: newsOutlets[i % newsOutlets.length]
+            }
+          : {
+              id: i + 1000, // Prevent ID collisions
+              title: fallbackTitles[i % fallbackTitles.length],
+              source: newsOutlets[i % newsOutlets.length],
+              category: fallbackCategories[i % fallbackCategories.length]
+            };
+        
+        return (
+          <NewsBillboard 
+            key={`floating-billboard-${i}`}
+            position={position}
+            rotation={rotation}
+            article={billboardArticle}
+            scale={2.5} // Larger for floating billboards
+            buildingId={i + 1000} // Prevent ID collisions
           />
         );
       })}
@@ -869,9 +911,9 @@ export default function FuturisticCityscape({ newsArticles }: { newsArticles: Ne
           enablePan={false}
           enableRotate={false}
           enableDamping={false} // Disable damping for better performance
-          target={[-2.5, 8, 0]} // Look at the middle of buildings (above ground level)
+          target={[-2.5, 6, 0]} // Look at the middle of buildings (above ground level)
           autoRotate={true}
-          autoRotateSpeed={0.4} // Even slower rotation for better viewing
+          autoRotateSpeed={0.5} // Even slower rotation for better viewing
         />
         
         {/* Main lighting - simplified */}
@@ -886,7 +928,7 @@ export default function FuturisticCityscape({ newsArticles }: { newsArticles: Ne
         
         {/* City elements - core functionality only */}
         <CyberpunkGround />
-        <Buildings count={25} newsArticles={newsArticles} />
+        <Buildings count={35} newsArticles={newsArticles} />
         
         {/* Only add flying vehicles on high-end devices */}
         {highPerformanceDevice && (

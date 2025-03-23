@@ -113,10 +113,10 @@ export default function Home() {
           {/* Hero content overlay */}
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
             <div className="bg-black/20 backdrop-blur-sm p-8 rounded-lg max-w-3xl">
-              <h1 className={`${outfit.className} text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-cyan-400 to-fuchsia-500 bg-clip-text text-transparent`}>
+              <h1 className={`${outfit.className} text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-cyan-400 to-fuchsia-500 bg-clip-text text-transparent text-center`}>
                 News From Every Perspective
               </h1>
-              <p className="text-lg md:text-xl text-gray-100 max-w-3xl mx-auto mb-6">
+              <p className="text-lg md:text-xl text-gray-100 max-w-3xl mx-auto mb-6 text-center font-outfit">
                 Discover balanced, AI-generated news that synthesizes diverse viewpoints, including underrepresented voices.
               </p>
               <div className="flex justify-center w-full">

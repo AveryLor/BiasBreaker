@@ -77,36 +77,67 @@ Example output: climate change, polar bears, arctic, ice melt, habitat loss"""
             stop_sequences=["\n"]
         )
         
-        keywords = [word.strip() for word in response.generations[0].text.split(',')]
+        cohere_keywords = [word.strip() for word in response.generations[0].text.split(',')]
         
         # Filter out any empty keywords or non-keyword text
-        keywords = [k for k in keywords if k and not k.startswith("example") and not k.startswith("output")]
+        cohere_keywords = [k for k in cohere_keywords if k and not k.startswith("example") and not k.startswith("output")]
         
-        # Limit to exactly 5 keywords or the number of words in the original message if fewer
-        min_keywords = min(5, len(message.split()))
-        if len(keywords) > 5:
-            keywords = keywords[:5]
-        elif len(keywords) < min_keywords:
-            # Add the main words from the original message if we don't have enough keywords
-            message_words = [word.strip('.,?!:;()[]{}""\'') for word in message.split()]
-            for word in message_words:
-                if len(word) > 3 and word.lower() not in [k.lower() for k in keywords]:
-                    keywords.append(word)
-                    if len(keywords) >= 5:
+        # Extract significant words from the original message (words with 3+ characters)
+        original_words = [word.strip('.,?!:;()[]{}""\'').lower() for word in message.split() if len(word.strip('.,?!:;()[]{}""\'')) > 3]
+        
+        # Identify keywords that come directly from the original prompt
+        keywords_with_source = []
+        
+        # First add keywords from the original prompt
+        for keyword in cohere_keywords:
+            is_from_original = False
+            for original_word in original_words:
+                # Check if keyword contains original word or vice versa
+                if original_word in keyword.lower() or keyword.lower() in original_word:
+                    is_from_original = True
+                    break
+            
+            keywords_with_source.append({
+                "keyword": keyword,
+                "from_original": is_from_original
+            })
+        
+        # If we have fewer than 5 keywords, add important words from the original message
+        if len(keywords_with_source) < 5:
+            for word in original_words:
+                if not any(word.lower() in k["keyword"].lower() or k["keyword"].lower() in word.lower() for k in keywords_with_source):
+                    keywords_with_source.append({
+                        "keyword": word,
+                        "from_original": True
+                    })
+                    if len(keywords_with_source) >= 5:
                         break
         
-        print("\nKeywords extracted:", keywords)
+        # Limit to exactly 5 keywords, prioritizing ones from the original message
+        keywords_with_source.sort(key=lambda x: 0 if x["from_original"] else 1)
+        keywords_with_source = keywords_with_source[:5]
+        
+        # Log the keywords and their sources
+        print("\nKeywords extracted:")
+        for k in keywords_with_source:
+            source = "ORIGINAL" if k["from_original"] else "GENERATED"
+            print(f"  {k['keyword']} [{source}]")
+        
         print(f"Original query: '{message}'")
-        return keywords
+        
+        # Return both the keywords and their source information
+        return keywords_with_source
+        
     except Exception as e:
         print("\nError in keyword extraction:", str(e))
         # Fall back to using the main words from the original message
-        message_words = [word.strip('.,?!:;()[]{}""\'') for word in message.split() if len(word) > 3]
+        message_words = [word.strip('.,?!:;()[]{}""\'') for word in message.split() if len(word.strip('.,?!:;()[]{}""\'')) > 3]
         if not message_words:
-            return [message]
-        return message_words[:5]
+            return [{"keyword": message, "from_original": True}]
+        
+        return [{"keyword": word, "from_original": True} for word in message_words[:5]]
 
-def search_articles(keywords):
+def search_articles(keywords_with_source):
     try:
         all_results = []
         neutrality_checker = NeutralityCheck()
@@ -115,9 +146,16 @@ def search_articles(keywords):
         print("\nSearching for articles...")
         
         # Set a maximum number of articles to collect before selection
-        max_articles_to_collect = 16
+        max_articles_to_collect = 6
         
-        for keyword in keywords:
+        # First, search using keywords from the original prompt
+        original_keywords = [k["keyword"] for k in keywords_with_source if k["from_original"]]
+        generated_keywords = [k["keyword"] for k in keywords_with_source if not k["from_original"]]
+        
+        print("\nPrioritizing search with original keywords:", original_keywords)
+        
+        # First search with original keywords
+        for keyword in original_keywords:
             # Skip this keyword if we already found enough articles
             if len(all_results) >= max_articles_to_collect:
                 print(f"\nReached {max_articles_to_collect} articles. Stopping search.")
@@ -153,20 +191,76 @@ def search_articles(keywords):
                         "content": article['news_information'],
                         "source_link": article.get('source_link', ''),  # Include source link
                         "bias_score": bias_score,
-                        "biased_segments": neutrality_result['biased_segments']
+                        "biased_segments": neutrality_result['biased_segments'],
+                        "matched_keyword": keyword,
+                        "keyword_source": "original"
                     })
                     
                     # Check if we've reached the maximum after adding this article
                     if len(all_results) >= max_articles_to_collect:
                         print(f"\nReached {max_articles_to_collect} articles. Stopping search.")
                         break
-                
-                # Break the outer loop if we already have enough articles
+        
+        # Then search with generated keywords if we still need more articles
+        if len(all_results) < max_articles_to_collect and generated_keywords:
+            print("\nSupplementing search with generated keywords:", generated_keywords)
+            
+            for keyword in generated_keywords:
+                # Skip this keyword if we already found enough articles
                 if len(all_results) >= max_articles_to_collect:
+                    print(f"\nReached {max_articles_to_collect} articles. Stopping search.")
                     break
+                    
+                response = supabase.table("news") \
+                    .select("id, article_titles, news_information, source_link") \
+                    .ilike("article_titles", f"%{keyword}%") \
+                    .execute()
+                
+                if response.data:
+                    for article in response.data:
+                        # Skip if we already have this article
+                        if any(r['id'] == article['id'] for r in all_results):
+                            continue
+                            
+                        article_data = {
+                            "customized_article": {
+                                "title": article['article_titles'],
+                                "content": article['news_information']
+                            }
+                        }
+                        
+                        neutrality_result = neutrality_checker.evaluate_neutrality(article_data)
+                        bias_score = neutrality_result['bias_score']
+                        
+                        # Store bias score with ID
+                        bias_scores_dict[article['id']] = bias_score
+                        
+                        all_results.append({
+                            "id": article['id'],
+                            "title": article['article_titles'],
+                            "content": article['news_information'],
+                            "source_link": article.get('source_link', ''),  # Include source link
+                            "bias_score": bias_score,
+                            "biased_segments": neutrality_result['biased_segments'],
+                            "matched_keyword": keyword,
+                            "keyword_source": "generated"
+                        })
+                        
+                        # Check if we've reached the maximum after adding this article
+                        if len(all_results) >= max_articles_to_collect:
+                            print(f"\nReached {max_articles_to_collect} articles. Stopping search.")
+                            break
+                    
+                    # Break the outer loop if we already have enough articles
+                    if len(all_results) >= max_articles_to_collect:
+                        break
 
         # Print the number of articles found
         print(f"\nFound {len(all_results)} articles matching keywords")
+        original_matches = sum(1 for a in all_results if a.get('keyword_source') == 'original')
+        generated_matches = sum(1 for a in all_results if a.get('keyword_source') == 'generated')
+        print(f"  {original_matches} from original keywords")
+        print(f"  {generated_matches} from generated keywords")
 
         # Print the bias scores dictionary
         print("\nAll articles with bias scores:")
@@ -286,20 +380,20 @@ def receive_chat(chat_input: ChatInput):
         print(f"{'#'*50}")
         
         # Extract keywords from the query
-        keywords = extract_keywords(chat_input.message)
+        keywords_with_source = extract_keywords(chat_input.message)
         
         # Calculate keyword relevance to original query
         query_words = set(word.lower().strip('.,?!:;()[]{}""\'') for word in chat_input.message.split() if len(word) > 3)
-        keyword_overlap = [k for k in keywords if any(query_word in k.lower() or k.lower() in query_word for query_word in query_words)]
+        keyword_overlap = [k for k in keywords_with_source if any(query_word in k["keyword"].lower() or k["keyword"].lower() in query_word for query_word in query_words)]
         
         # Log keyword relevance
         print(f"\nKeyword relevance analysis:")
         print(f"Main words in query: {', '.join(query_words)}")
-        print(f"Keywords matching query: {', '.join(keyword_overlap)}")
-        print(f"Match percentage: {len(keyword_overlap)/len(keywords)*100:.1f}% of keywords match query terms")
+        print(f"Keywords matching query: {', '.join(k['keyword'] for k in keyword_overlap)}")
+        print(f"Match percentage: {len(keyword_overlap)/len(keywords_with_source)*100:.1f}% of keywords match query terms")
         
         # Search for articles using the keywords
-        search_results = search_articles(keywords)
+        search_results = search_articles(keywords_with_source)
         
         # Find generated neutral article if it exists
         neutral_article = next((article for article in search_results 
@@ -309,15 +403,20 @@ def receive_chat(chat_input: ChatInput):
         regular_articles = [article for article in search_results 
                            if article.get('id') != 'neutral-generated']
         
+        # Sort articles to prioritize those matching original keywords
+        regular_articles.sort(key=lambda x: 0 if x.get('keyword_source') == 'original' else 1)
+        
         # Prepare response
         response = {
             "status": "success",
             "query": chat_input.message,
-            "keywords": keywords,
+            "keywords": [k["keyword"] for k in keywords_with_source],
+            "keywords_with_source": keywords_with_source,
             "keyword_analysis": {
                 "query_main_words": list(query_words),
-                "matching_keywords": keyword_overlap,
-                "match_percentage": round(len(keyword_overlap)/max(1, len(keywords))*100, 1)
+                "matching_keywords": [k["keyword"] for k in keyword_overlap],
+                "matching_keywords_with_source": keyword_overlap,
+                "match_percentage": round(len(keyword_overlap)/max(1, len(keywords_with_source))*100, 1)
             },
             "results": regular_articles,
             "neutral_article": neutral_article
@@ -371,8 +470,13 @@ def receive_chat(chat_input: ChatInput):
         print(f"Status: {response['status']}")
         print(f"Message: {response['message']}")
         print(f"Query: '{chat_input.message}'")
-        print(f"Keywords: {', '.join(keywords)}")
+        print(f"Keywords:")
+        for k in keywords_with_source:
+            source = "ORIGINAL" if k["from_original"] else "GENERATED"
+            print(f"  {k['keyword']} [{source}]")
         print(f"Keyword match: {response['keyword_analysis']['match_percentage']}% overlap with query")
+        print(f"Articles from original keywords: {sum(1 for a in regular_articles if a.get('keyword_source') == 'original')}")
+        print(f"Articles from generated keywords: {sum(1 for a in regular_articles if a.get('keyword_source') == 'generated')}")
         print(f"Regular article count: {len(regular_articles)}")
         print(f"Neutral article: {'Generated' if neutral_article else 'None'}")
         print(f"{'*'*50}\n")
@@ -384,6 +488,14 @@ def receive_chat(chat_input: ChatInput):
             "status": "error",
             "message": "An error occurred",
             "query": chat_input.message,
+            "keywords": [],
+            "keywords_with_source": [],
+            "keyword_analysis": {
+                "query_main_words": [],
+                "matching_keywords": [],
+                "matching_keywords_with_source": [],
+                "match_percentage": 0
+            },
             "results": [],
             "neutral_article": None
         }

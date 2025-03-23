@@ -57,20 +57,54 @@ class ChatInput(BaseModel):
 
 def extract_keywords(message):
     try:
+        # Create a more specific prompt that preserves key terms from the original query
+        prompt = f"""Extract exactly 5 key search terms related to this topic: "{message}"
+
+IMPORTANT INSTRUCTIONS:
+1. ALWAYS include the main important words from the original query (if they are relevant and spelled correctly)
+2. If the original query has fewer than 5 main words, add related terms to reach 5 keywords
+3. All keywords must be highly relevant to the query's central topic
+4. Output ONLY the words separated by commas, with no additional text or explanation
+
+Example input: "What are the effects of climate change on polar bears?"
+Example output: climate change, polar bears, arctic, ice melt, habitat loss"""
+
         response = cohere_client.generate(
             model='command',
-            prompt=f"Extract 5 key search terms related to this topic: {message}\nOutput only the words separated by commas:",
+            prompt=prompt,
             max_tokens=50,
             temperature=0.3,
             stop_sequences=["\n"]
         )
         
         keywords = [word.strip() for word in response.generations[0].text.split(',')]
-        print("\nKeywords extracted:", keywords)  # Added newline for clarity
+        
+        # Filter out any empty keywords or non-keyword text
+        keywords = [k for k in keywords if k and not k.startswith("example") and not k.startswith("output")]
+        
+        # Limit to exactly 5 keywords or the number of words in the original message if fewer
+        min_keywords = min(5, len(message.split()))
+        if len(keywords) > 5:
+            keywords = keywords[:5]
+        elif len(keywords) < min_keywords:
+            # Add the main words from the original message if we don't have enough keywords
+            message_words = [word.strip('.,?!:;()[]{}""\'') for word in message.split()]
+            for word in message_words:
+                if len(word) > 3 and word.lower() not in [k.lower() for k in keywords]:
+                    keywords.append(word)
+                    if len(keywords) >= 5:
+                        break
+        
+        print("\nKeywords extracted:", keywords)
+        print(f"Original query: '{message}'")
         return keywords
     except Exception as e:
         print("\nError in keyword extraction:", str(e))
-        return [message]
+        # Fall back to using the main words from the original message
+        message_words = [word.strip('.,?!:;()[]{}""\'') for word in message.split() if len(word) > 3]
+        if not message_words:
+            return [message]
+        return message_words[:5]
 
 def search_articles(keywords):
     try:
@@ -177,18 +211,41 @@ def search_articles(keywords):
             min_bias = min(article.get('bias_score', 0) for article in selected_articles)
             max_bias = max(article.get('bias_score', 0) for article in selected_articles)
             
+            print("\nGenerating article summaries for each source article:")
+            print(f"{'='*80}")
+            
             for article in selected_articles:
+                # Generate a summary for this article
+                summary = generate_article_summary(
+                    article.get('content', ''), 
+                    article.get('title', 'No title')
+                )
+                
+                # Print the article summary
+                print(f"SOURCE ARTICLE: {article.get('title', 'No title')}")
+                print(f"BIAS SCORE: {article.get('bias_score', 0)}")
+                print("SUMMARY:")
+                for bullet in summary:
+                    print(f"  {bullet}")
+                print(f"{'.'*50}")
+                
+                # Add this article with its summary to the source_articles list
                 source_articles.append({
                     "id": article.get('id', 'unknown'),
                     "title": article.get('title', 'No title'),
-                    "bias_score": article.get('bias_score', 0)
+                    "bias_score": article.get('bias_score', 0),
+                    "summary": summary
                 })
+            
+            print(f"{'='*80}")
                 
             # Generate neutral article
             neutral_article = neutral_generator.generate_neutral_article(selected_articles)
             
             # Add source information and bias score
             neutral_article['source_articles'] = source_articles
+            neutral_article['source_count'] = len(source_articles)
+            neutral_article['source_bias_range'] = f"{min_bias}-{max_bias}"
             neutral_article['bias_score'] = 50  # Neutral
             neutral_article['id'] = "neutral-generated"  # Special ID to identify this article
             
@@ -202,6 +259,9 @@ def search_articles(keywords):
             print(f"{'='*80}")
             print(neutral_article['content'])
             print(f"{'='*80}")
+            print(f"SOURCE COUNT: {len(source_articles)}")
+            print(f"SOURCE BIAS RANGE: {min_bias}-{max_bias}")
+            print(f"{'='*80}\n")
         
         return all_results
             
@@ -216,7 +276,20 @@ def receive_chat(chat_input: ChatInput):
         print(f"PROCESSING QUERY: '{chat_input.message}'")
         print(f"{'#'*50}")
         
+        # Extract keywords from the query
         keywords = extract_keywords(chat_input.message)
+        
+        # Calculate keyword relevance to original query
+        query_words = set(word.lower().strip('.,?!:;()[]{}""\'') for word in chat_input.message.split() if len(word) > 3)
+        keyword_overlap = [k for k in keywords if any(query_word in k.lower() or k.lower() in query_word for query_word in query_words)]
+        
+        # Log keyword relevance
+        print(f"\nKeyword relevance analysis:")
+        print(f"Main words in query: {', '.join(query_words)}")
+        print(f"Keywords matching query: {', '.join(keyword_overlap)}")
+        print(f"Match percentage: {len(keyword_overlap)/len(keywords)*100:.1f}% of keywords match query terms")
+        
+        # Search for articles using the keywords
         search_results = search_articles(keywords)
         
         # Find generated neutral article if it exists
@@ -232,6 +305,11 @@ def receive_chat(chat_input: ChatInput):
             "status": "success",
             "query": chat_input.message,
             "keywords": keywords,
+            "keyword_analysis": {
+                "query_main_words": list(query_words),
+                "matching_keywords": keyword_overlap,
+                "match_percentage": round(len(keyword_overlap)/max(1, len(keywords))*100, 1)
+            },
             "results": regular_articles,
             "neutral_article": neutral_article
         }
@@ -242,11 +320,35 @@ def receive_chat(chat_input: ChatInput):
             
             # Include source information if we have a neutral article
             if neutral_article and 'source_articles' in neutral_article:
+                # Map source articles to include the summaries
+                source_articles_with_summaries = []
+                
+                for source in neutral_article.get('source_articles', []):
+                    source_articles_with_summaries.append({
+                        "id": source.get('id', 'unknown'),
+                        "title": source.get('title', 'No title'),
+                        "bias_score": source.get('bias_score', 0),
+                        "summary": source.get('summary', [
+                            "• Summary not available",
+                            "• Please see full article",
+                            "• For more details"
+                        ])
+                    })
+                
                 response["sources"] = {
                     "count": neutral_article.get("source_count", len(neutral_article['source_articles'])),
                     "bias_range": neutral_article.get("source_bias_range", "Unknown"),
-                    "articles": neutral_article['source_articles']
+                    "articles": source_articles_with_summaries
                 }
+                
+                # Print a summary of the sources with their summaries
+                print("\nSORTED SOURCE ARTICLES WITH SUMMARIES:")
+                # Sort by bias score for better presentation
+                sorted_sources = sorted(source_articles_with_summaries, key=lambda x: x.get('bias_score', 0))
+                for idx, source in enumerate(sorted_sources, 1):
+                    print(f"\nSOURCE {idx}: '{source.get('title')}'")
+                    for bullet in source.get('summary', []):
+                        print(f"  {bullet}")
         else:
             response["message"] = "No articles found"
         
@@ -256,7 +358,9 @@ def receive_chat(chat_input: ChatInput):
         print(f"{'*'*50}")
         print(f"Status: {response['status']}")
         print(f"Message: {response['message']}")
-        print(f"Keyword count: {len(keywords)}")
+        print(f"Query: '{chat_input.message}'")
+        print(f"Keywords: {', '.join(keywords)}")
+        print(f"Keyword match: {response['keyword_analysis']['match_percentage']}% overlap with query")
         print(f"Regular article count: {len(regular_articles)}")
         print(f"Neutral article: {'Generated' if neutral_article else 'None'}")
         print(f"{'*'*50}\n")
@@ -282,6 +386,56 @@ def get_welcome_text():
 @app.get("/")
 def root():
     return {"status": "API is running"}
+
+def generate_article_summary(article_content, article_title):
+    """Generate a brief 3-point summary of an article using Cohere API"""
+    try:
+        print(f"Generating summary for article: {article_title[:50]}...")
+        
+        # Create prompt for summary generation
+        prompt = f"""Summarize the following article in exactly 3 bullet points (using • as the bullet symbol).
+        Each bullet point should be concise (max 15 words) and highlight a key fact or point from the article.
+        
+        Title: {article_title}
+        
+        Content: {article_content[:2000]}  # Limit content to avoid token limits
+        
+        Format your response as ONLY 3 bullet points, one per line, no introduction or conclusion:
+        • First key point
+        • Second key point
+        • Third key point
+        """
+        
+        response = cohere_client.generate(
+            model='command',
+            prompt=prompt,
+            max_tokens=150,
+            temperature=0.4,
+            stop_sequences=["\n\n"]
+        )
+        
+        summary_text = response.generations[0].text.strip()
+        
+        # Extract just the bullet points
+        bullets = [line.strip() for line in summary_text.split('\n') if line.strip().startswith('•')]
+        
+        # Ensure we have exactly 3 bullet points
+        if len(bullets) > 3:
+            bullets = bullets[:3]
+        elif len(bullets) < 3:
+            # Add generic bullets if we don't have enough
+            while len(bullets) < 3:
+                bullets.append(f"• Additional information about {article_title.split()[:3]}")
+        
+        return bullets
+        
+    except Exception as e:
+        print(f"Error generating article summary: {str(e)}")
+        return [
+            f"• Summary of article: {article_title[:30]}...",
+            "• Could not generate complete summary",
+            "• See full article for details"
+        ]
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

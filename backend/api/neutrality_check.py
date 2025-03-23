@@ -85,7 +85,7 @@ class NeutralityCheck:
         Analyze the political bias of the following article. Provide a score from 0 to 100 based on the political leaning of the content:
 
         0 = Extreme left-wing (very liberal, progressive, or socialist-leaning views)
-        50 = Neutral or factual (balanced coverage, no clear political leaning) IF IT IS FACTUAL AND NEUTRAL THE SCORE SHOULD BE CLOSE TO 50
+        50 = Neutral or factual (balanced coverage, no clear political leaning)
         100 = Extreme right-wing (very conservative, nationalist, or traditionalist views)
         Values in between are also encouraged.
 

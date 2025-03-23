@@ -11,6 +11,8 @@ from datetime import timedelta
 import json
 import re
 import supabase
+import logging
+import random
 from typing import List, Optional, Dict, Any, Union
 try:
     import jwt
@@ -20,12 +22,26 @@ except ImportError:
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
 from fastapi.responses import JSONResponse
+from api.neutrality_check import NeutralityCheck
+from api.neutral_article_generator import NeutralArticleGenerator
+from api.natural_language_understanding import NaturalLanguageUnderstanding
+
+# Suppress HTTP client debug logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("h2").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+logging.getLogger("fastapi").setLevel(logging.WARNING)
+
+# Set general logging to WARNING level
+logging.basicConfig(level=logging.WARNING)
 
 # Load environment variables and setup Supabase and Cohere
 load_dotenv()
 supabase_url = os.getenv("SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_KEY")
-cohere_api_key = os.getenv("COHERE_API_KEY")  # Add this line
+COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 
 # Initialize clients only if credentials are available
 supabase = None
@@ -37,12 +53,21 @@ if supabase_url and supabase_key:
         print("Some functionality requiring database access will not work.")
 
 co = None
-if cohere_api_key:
+if COHERE_API_KEY:
     try:
-        co = cohere.Client(cohere_api_key)
+        co = cohere.Client(COHERE_API_KEY)
     except Exception as e:
         print(f"Warning: Could not initialize Cohere client: {e}")
         print("Some AI functionality will not work.")
+
+# Initialize API modules
+try:
+    nlu = NaturalLanguageUnderstanding()  # Natural language understanding
+    neutral_generator = NeutralArticleGenerator()  # Neutral article generator
+    neutrality_checker = NeutralityCheck()  # Neutrality checker
+except Exception as e:
+    print(f"Warning: Could not initialize some API modules: {e}")
+    print("Some advanced features may not work properly.")
 
 app = FastAPI()
 
@@ -247,22 +272,55 @@ def extract_keywords(message):
             # Return the message itself as the keyword if Cohere is not available
             return [message]
             
+        # Create a more specific prompt that preserves key terms from the original query
+        prompt = f"""Extract exactly 5 key search terms related to this topic: "{message}"
+
+IMPORTANT INSTRUCTIONS:
+1. ALWAYS include the main important words from the original query (if they are relevant and spelled correctly)
+2. If the original query has fewer than 5 main words, add related terms to reach 5 keywords
+3. All keywords must be highly relevant to the query's central topic
+4. Output ONLY the words separated by commas, with no additional text or explanation
+
+Example input: "What are the effects of climate change on polar bears?"
+Example output: climate change, polar bears, arctic, ice melt, habitat loss"""
+            
         # Use Cohere to generate related terms
         response = co.generate(
             model='command',
-            prompt=f"Extract 5 key search terms related to this topic: {message}\nOutput only the words separated by commas:",
+            prompt=prompt,
             max_tokens=50,
             temperature=0.3,
             stop_sequences=["\n"]
         )
         
-        # Clean and split the generated keywords
         keywords = [word.strip() for word in response.generations[0].text.split(',')]
-        print(f"Generated keywords: {keywords}")
+        
+        # Filter out any empty keywords or non-keyword text
+        keywords = [k for k in keywords if k and not k.startswith("example") and not k.startswith("output")]
+        
+        # Limit to exactly 5 keywords or the number of words in the original message if fewer
+        min_keywords = min(5, len(message.split()))
+        if len(keywords) > 5:
+            keywords = keywords[:5]
+        elif len(keywords) < min_keywords:
+            # Add the main words from the original message if we don't have enough keywords
+            message_words = [word.strip('.,?!:;()[]{}""\'') for word in message.split()]
+            for word in message_words:
+                if len(word) > 3 and word.lower() not in [k.lower() for k in keywords]:
+                    keywords.append(word)
+                    if len(keywords) >= 5:
+                        break
+        
+        print("\nKeywords extracted:", keywords)
+        print(f"Original query: '{message}'")
         return keywords
     except Exception as e:
-        print(f"Error generating keywords: {str(e)}")
-        return [message]  # Fallback to original message if error
+        print("\nError in keyword extraction:", str(e))
+        # Fall back to using the main words from the original message
+        message_words = [word.strip('.,?!:;()[]{}""\'') for word in message.split() if len(word) > 3]
+        if not message_words:
+            return [message]
+        return message_words[:5]
 
 def search_articles(keywords):
     try:
@@ -298,82 +356,219 @@ def search_articles(keywords):
             ]
 
         all_results = []
-        print(f"Searching for articles with keywords: {keywords}")
+        neutrality_checker = NeutralityCheck()
+        bias_scores_dict = {}  # Dictionary to store ID: bias_score pairs
         
-        # Search for each keyword
+        print("\nSearching for articles...")
+        
+        # Set a maximum number of articles to collect before selection
+        max_articles_to_collect = 16
+        
         for keyword in keywords:
+            # Skip this keyword if we already found enough articles
+            if len(all_results) >= max_articles_to_collect:
+                print(f"\nReached {max_articles_to_collect} articles. Stopping search.")
+                break
+                
             print(f"Searching for keyword: {keyword}")
-            response = supabase.table("articleInformationDB") \
-                .select("id, article_titles, source_name, source_link, news_information") \
-                .ilike("news_information", f"%{keyword}%") \
-                .execute()
-            
-            print(f"Found {len(response.data)} results for keyword '{keyword}'")
+            # Try both table names to ensure compatibility
+            try:
+                response = supabase.table("news") \
+                    .select("id, article_titles, news_information") \
+                    .ilike("article_titles", f"%{keyword}%") \
+                    .execute()
+                    
+                if not response.data and supabase:
+                    # Try the alternate table name
+                    response = supabase.table("articleInformationDB") \
+                        .select("id, article_titles, source_name, source_link, news_information") \
+                        .ilike("news_information", f"%{keyword}%") \
+                        .execute()
+            except Exception as e:
+                print(f"Error searching first table: {e}")
+                try:
+                    # Try the alternate table name
+                    response = supabase.table("articleInformationDB") \
+                        .select("id, article_titles, source_name, source_link, news_information") \
+                        .ilike("news_information", f"%{keyword}%") \
+                        .execute()
+                except Exception as e2:
+                    print(f"Error searching second table: {e2}")
+                    response = {"data": []}
             
             if response.data:
                 for article in response.data:
-                    # Avoid duplicates
-                    if not any(r['id'] == article['id'] for r in all_results):
-                        print(f"Adding article: {article['article_titles']}")
+                    # Skip if we already have this article
+                    if any(r['id'] == article['id'] for r in all_results):
+                        continue
+                    
+                    # Check which table format we're using
+                    if "source_name" in article:
+                        # articleInformationDB format
+                        article_data = {
+                            "customized_article": {
+                                "title": article['article_titles'],
+                                "content": article['news_information']
+                            }
+                        }
+                        
+                        neutrality_result = neutrality_checker.evaluate_neutrality(article_data)
+                        bias_score = neutrality_result['bias_score']
+                        
+                        # Store bias score with ID
+                        bias_scores_dict[article['id']] = bias_score
+                        
                         all_results.append({
                             "id": article['id'],
                             "title": article['article_titles'],
                             "source": article['source_name'],
-                            "article_content": article['news_information'],
-                            "source_link": article['source_link'],
-                            # No published date in the schema, use current date
-                            "published_date": datetime.datetime.now().isoformat()
+                            "content": article['news_information'],
+                            "source_link": article.get('source_link', ''),
+                            "bias_score": bias_score,
+                            "biased_segments": neutrality_result['biased_segments']
                         })
+                    else:
+                        # news table format
+                        article_data = {
+                            "customized_article": {
+                                "title": article['article_titles'],
+                                "content": article['news_information']
+                            }
+                        }
+                        
+                        neutrality_result = neutrality_checker.evaluate_neutrality(article_data)
+                        bias_score = neutrality_result['bias_score']
+                        
+                        # Store bias score with ID
+                        bias_scores_dict[article['id']] = bias_score
+                        
+                        all_results.append({
+                            "id": article['id'],
+                            "title": article['article_titles'],
+                            "content": article['news_information'],
+                            "bias_score": bias_score,
+                            "biased_segments": neutrality_result['biased_segments']
+                        })
+                    
+                    # Check if we've reached the maximum after adding this article
+                    if len(all_results) >= max_articles_to_collect:
+                        print(f"\nReached {max_articles_to_collect} articles. Stopping search.")
+                        break
             else:
                 print(f"No results found for keyword '{keyword}'")
-                
+        
         print(f"Total unique articles found: {len(all_results)}")
         return all_results
             
     except Exception as e:
         print(f"Error searching articles: {str(e)}")
-        # Return mock data as fallback
-        return [
-            {
-                "id": 1,
-                "title": "Error Retrieving Articles",
-                "source": "System",
-                "article_content": f"There was an error searching for articles: {str(e)}. Please try again later.",
-                "source_link": "https://example.com/error",
-                "published_date": datetime.datetime.now().isoformat()
-            }
-        ]
+        return []
 
 @app.post("/api/chat")
 def receive_chat(chat_input: ChatInput):
     try:
-        print(f"Received chat message: {chat_input.message}")
-        # Extract keywords using Cohere
-        keywords = extract_keywords(chat_input.message)
-        print(f"Successfully extracted keywords: {keywords}")
+        print(f"\n{'#'*50}")
+        print(f"PROCESSING QUERY: '{chat_input.message}'")
+        print(f"{'#'*50}")
         
-        # Search for articles using the extracted keywords
+        # Extract keywords from the query
+        keywords = extract_keywords(chat_input.message)
+        
+        # Calculate keyword relevance to original query
+        query_words = set(word.lower().strip('.,?!:;()[]{}""\'') for word in chat_input.message.split() if len(word) > 3)
+        keyword_overlap = [k for k in keywords if any(query_word in k.lower() or k.lower() in query_word for query_word in query_words)]
+        
+        # Log keyword relevance
+        print(f"\nKeyword relevance analysis:")
+        print(f"Main words in query: {', '.join(query_words)}")
+        print(f"Keywords matching query: {', '.join(keyword_overlap)}")
+        print(f"Match percentage: {len(keyword_overlap)/len(keywords)*100:.1f}% of keywords match query terms")
+        
+        # Search for articles using the keywords
         search_results = search_articles(keywords)
-        print(f"Search completed. Found {len(search_results)} results")
+        
+        # Find generated neutral article if it exists
+        neutral_article = next((article for article in search_results 
+                               if article.get('id') == 'neutral-generated'), None)
+        
+        # Other articles (excluding the neutral article)
+        regular_articles = [article for article in search_results 
+                           if article.get('id') != 'neutral-generated']
+        
+        # Prepare response
+        response = {
+            "status": "success",
+            "query": chat_input.message,
+            "keywords": keywords,
+            "keyword_analysis": {
+                "query_main_words": list(query_words),
+                "matching_keywords": keyword_overlap,
+                "match_percentage": round(len(keyword_overlap)/max(1, len(keywords))*100, 1)
+            },
+            "results": regular_articles,
+            "neutral_article": neutral_article
+        }
         
         if search_results:
-            return {
-                "status": "success",
-                "message": f"Found {len(search_results)} articles",
-                "results": search_results
-            }
+            neutral_msg = " and generated a neutral article" if neutral_article else ""
+            response["message"] = f"Found {len(regular_articles)} articles{neutral_msg}"
+            
+            # Include source information if we have a neutral article
+            if neutral_article and 'source_articles' in neutral_article:
+                # Map source articles to include the summaries
+                source_articles_with_summaries = []
+                
+                for source in neutral_article.get('source_articles', []):
+                    source_articles_with_summaries.append({
+                        "id": source.get('id', 'unknown'),
+                        "title": source.get('title', 'No title'),
+                        "bias_score": source.get('bias_score', 0),
+                        "summary": source.get('summary', [
+                            "• Summary not available",
+                            "• Please see full article",
+                            "• For more details"
+                        ])
+                    })
+                
+                response["sources"] = {
+                    "count": neutral_article.get("source_count", len(neutral_article['source_articles'])),
+                    "bias_range": neutral_article.get("source_bias_range", "Unknown"),
+                    "articles": source_articles_with_summaries
+                }
+                
+                # Print a summary of the sources with their summaries
+                print("\nSORTED SOURCE ARTICLES WITH SUMMARIES:")
+                # Sort by bias score for better presentation
+                sorted_sources = sorted(source_articles_with_summaries, key=lambda x: x.get('bias_score', 0))
+                for idx, source in enumerate(sorted_sources, 1):
+                    print(f"\nSOURCE {idx}: '{source.get('title')}'")
+                    for bullet in source.get('summary', []):
+                        print(f"  {bullet}")
         else:
-            return {
-                "status": "success",
-                "message": "No articles found",
-                "results": []
-            }
+            response["message"] = "No articles found"
+        
+        # Print summary of the API response
+        print(f"\n{'*'*50}")
+        print(f"API RESPONSE SUMMARY:")
+        print(f"{'*'*50}")
+        print(f"Status: {response['status']}")
+        print(f"Message: {response['message']}")
+        print(f"Query: '{chat_input.message}'")
+        print(f"Keywords: {', '.join(keywords)}")
+        print(f"Keyword match: {response['keyword_analysis']['match_percentage']}% overlap with query")
+        print(f"Regular article count: {len(regular_articles)}")
+        print(f"Neutral article: {'Generated' if neutral_article else 'None'}")
+        print(f"{'*'*50}\n")
+            
+        return response
     except Exception as e:
-        print(f"Error in receive_chat: {str(e)}")
+        print(f"Error in chat endpoint: {str(e)}")
         return {
             "status": "error",
             "message": "An error occurred",
-            "results": []
+            "query": chat_input.message,
+            "results": [],
+            "neutral_article": None
         }
 
 @app.post("/api/articles/search")
@@ -516,213 +711,6 @@ def get_welcome_text():
 @app.get("/")
 def root():
     return {"status": "API is running"}
-
-# User routes
-@app.post("/users/", response_model=User)
-async def create_user(user: UserCreate):
-    try:
-        if not supabase:
-            # Mock user creation
-            return User(
-                id=1,
-                email=user.email,
-                name=user.name,
-                created_at=datetime.datetime.now()
-            )
-            
-        # Check if user already exists
-        result = supabase.table("users").select("*").eq("email", user.email).execute()
-        if result.data:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered"
-            )
-        
-        # Hash the password
-        hashed_password = get_password_hash(user.password)
-        
-        # Create user in Supabase
-        try:
-            user_data = {
-                "email": user.email,
-                "hashed_password": hashed_password,
-                "name": user.name
-            }
-            
-            result = supabase.table("users").insert(user_data).execute()
-            if not result.data:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to create user"
-                )
-            
-            created_user = result.data[0]
-            return User(
-                id=created_user["id"],
-                email=created_user["email"],
-                name=created_user.get("name"),
-                created_at=created_user["created_at"]
-            )
-        except Exception as e:
-            error_msg = str(e)
-            # Check if the error is about missing table
-            if "relation" in error_msg and "does not exist" in error_msg:
-                return JSONResponse(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    content={
-                        "detail": "Database setup incomplete. The users table does not exist in Supabase. Please create the required tables before continuing."
-                    }
-                )
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Database error: {error_msg}"
-            )
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error creating user: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
-        )
-
-def authenticate_user(email: str, password: str):
-    """Verify username and password."""
-    try:
-        if not supabase:
-            # For testing without Supabase
-            # Return a mock user
-            return {"email": email, "id": 1}
-            
-        # Query the user from Supabase
-        result = supabase.table("users").select("*").eq("email", email).execute()
-        if not result.data:
-            print(f"User not found: {email}")
-            return None
-        
-        user_data = result.data[0]
-        
-        # Verify password
-        if not verify_password(password, user_data["hashed_password"]):
-            print(f"Invalid password for user: {email}")
-            return None
-        
-        return user_data
-    except Exception as e:
-        print(f"Error authenticating user: {e}")
-        return None
-
-@app.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    try:
-        user = authenticate_user(form_data.username, form_data.password)
-        if not user:
-            print(f"Failed login attempt for user: {form_data.username}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect username or password",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        access_token_expires = datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = create_access_token(
-            data={"sub": form_data.username}, expires_delta=access_token_expires
-        )
-        print(f"Successful login for user: {form_data.username}")
-        return {"access_token": access_token, "token_type": "bearer"}
-    except Exception as e:
-        print(f"Error in login endpoint: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error during authentication: {str(e)}"
-        )
-
-@app.get("/users/me", response_model=User)
-async def read_users_me(current_user: User = Depends(get_current_user)):
-    try:
-        print(f"Fetching user profile for: {current_user.email}")
-        # Return the current user directly
-        return current_user
-    except Exception as e:
-        print(f"Error getting current user: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
-        )
-
-# User search history
-@app.post("/search-history/")
-async def record_search(query: str, current_user: User = Depends(get_current_user)):
-    try:
-        if not supabase:
-            # Mock response
-            return {"status": "success"}
-            
-        # Use the user_id property which always returns a valid integer
-        user_id = current_user.user_id
-        
-        search_data = {
-            "user_id": user_id,
-            "query": query,
-            "timestamp": datetime.datetime.utcnow().isoformat()
-        }
-        
-        result = supabase.table("search_history").insert(search_data).execute()
-        if not result.data:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to record search"
-            )
-        
-        return {"status": "success"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error recording search: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
-        )
-
-@app.get("/search-history/")
-async def get_search_history(current_user: User = Depends(get_current_user)):
-    try:
-        # Use the user_id property which always returns a valid integer
-        user_id = current_user.user_id
-        print(f"Fetching search history for user: {user_id}")
-        
-        if not supabase:
-            print("Supabase client not available, returning mock data")
-            # Return mock data
-            return [
-                {"id": 1, "user_id": user_id, "query": "Sample search 1", "timestamp": datetime.datetime.utcnow().isoformat()},
-                {"id": 2, "user_id": user_id, "query": "Sample search 2", "timestamp": datetime.datetime.utcnow().isoformat()}
-            ]
-            
-        print(f"Querying search_history table for user_id: {user_id}")
-        result = supabase.table("search_history").select("*").eq("user_id", user_id).order("timestamp", desc=True).execute()
-        print(f"Retrieved {len(result.data)} search history records")
-        
-        return result.data
-    except Exception as e:
-        print(f"Error getting search history: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
-        )
-
-# User political leaning
-@app.get("/political-leaning/")
-async def get_political_leaning(current_user: User = Depends(get_current_user)):
-    # This would be a real calculation based on user's reading history
-    # For demo purposes, we're returning fake data
-    return {
-        "left": 12,
-        "center_left": 19,
-        "center": 25,
-        "center_right": 17,
-        "right": 10
-    }
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

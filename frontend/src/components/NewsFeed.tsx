@@ -3,6 +3,7 @@ import NewsArticleCard from './NewsArticleCard';
 import MergedArticle from './MergedArticle';
 import ChatbotInput from './ChatbotInput';
 import { dummyNewsData } from '../data/dummyData';
+import { Article, MergedArticle as MergedArticleType, NewsData } from '../data/dummyData';
 
 interface NewsFeedProps {
   initialTopic?: string | null;
@@ -12,29 +13,63 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
   const [selectedPerspective, setSelectedPerspective] = useState<string | null>(null);
   const [searchTopic, setSearchTopic] = useState<string | null>(null);
   const [showArticles, setShowArticles] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [articleData, setArticleData] = useState<NewsData>(dummyNewsData);
+  const [error, setError] = useState<string | null>(null);
   
   // Use the initialTopic when provided
   useEffect(() => {
     if (initialTopic) {
       setSearchTopic(initialTopic);
       setShowArticles(true);
+      fetchArticlesByTopic(initialTopic);
     }
   }, [initialTopic]);
   
+  // Fetch articles from our API
+  const fetchArticlesByTopic = async (topic: string) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const response = await fetch('http://localhost:8000/api/articles/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ topic }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch articles');
+      }
+      
+      const data = await response.json();
+      
+      if (data.status === 'error') {
+        setError(data.message || 'Failed to fetch articles');
+        return;
+      }
+      
+      setArticleData(data);
+    } catch (err) {
+      console.error('Error fetching articles:', err);
+      setError('Failed to fetch articles. Using sample data instead.');
+      // Fall back to dummy data
+      setArticleData(dummyNewsData);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
   // Filter articles based on both perspective and search topic
-  const filteredArticles = dummyNewsData.articles.filter(article => {
+  const filteredArticles = articleData.articles.filter(article => {
     // Filter by perspective if selected
     const perspectiveMatch = selectedPerspective 
       ? article.perspective === selectedPerspective
       : true;
     
-    // Filter by topic if provided
-    const topicMatch = searchTopic
-      ? article.title.toLowerCase().includes(searchTopic.toLowerCase()) ||
-        article.excerpt.toLowerCase().includes(searchTopic.toLowerCase())
-      : true;
-    
-    return perspectiveMatch && topicMatch;
+    return perspectiveMatch;
   });
   
   const perspectives = ['All', 'Liberal', 'Conservative', 'Centrist', 'Progressive', 'Libertarian'];
@@ -43,6 +78,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
   const handleTopicSubmit = (topic: string) => {
     setSearchTopic(topic);
     setShowArticles(true);
+    fetchArticlesByTopic(topic);
   };
   
   return (
@@ -54,7 +90,22 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
       {/* Chatbot Input */}
       <ChatbotInput onTopicSubmit={handleTopicSubmit} initialValue={initialTopic} />
       
-      {showArticles && (
+      {isLoading && (
+        <div className="flex justify-center items-center py-20">
+          <div className="animate-pulse flex flex-col items-center">
+            <div className="w-12 h-12 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-cyan-400">Loading articles...</p>
+          </div>
+        </div>
+      )}
+      
+      {error && (
+        <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-4 mb-6 text-center">
+          <p className="text-red-300">{error}</p>
+        </div>
+      )}
+      
+      {showArticles && !isLoading && (
         <>
           {searchTopic && (
             <div className="mb-4 text-center">
@@ -93,12 +144,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ initialTopic }) => {
           </div>
           
           {/* AI-Generated Summary */}
-          <MergedArticle mergedArticle={{
-            ...dummyNewsData.mergedArticle,
-            title: searchTopic 
-              ? `${searchTopic}: A Comprehensive Analysis` 
-              : dummyNewsData.mergedArticle.title
-          }} />
+          <MergedArticle mergedArticle={articleData.mergedArticle} />
           
           {/* Individual Articles */}
           <h2 className="text-2xl font-bold mb-6 bg-gradient-to-r from-cyan-400 to-cyan-300 bg-clip-text text-transparent">
